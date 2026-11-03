@@ -1,5 +1,7 @@
 package com.lucasluqui.launcher.ui;
 
+import com.lucasluqui.launcher.server.ui.ServerHostUI;
+
 import com.lucasluqui.swing.FontIcon;
 import com.lucasluqui.swing.HiDpi;
 import com.lucasluqui.dialog.Dialog;
@@ -289,7 +291,7 @@ public class LauncherUI extends BaseUI
     playerCountTooltipButton.setVisible(false);
 
     // silverweave button needs the group to sit higher to stay centered between its neighbors.
-    int sideButtonsY = 260;
+    int sideButtonsY = 220;
 
     Icon settingsIcon = FontIcon.of(FontAwesome.COGS, Scale.px(16), ColorUtil.getForegroundColor());
     settingsButton = new JButton(_localeManager.getValue("b.settings"));
@@ -364,6 +366,23 @@ public class LauncherUI extends BaseUI
     });
     sidePane.add(silverweaveButton);
 
+    Icon serverIcon = FontIcon.of(FontAwesome.SERVER, Scale.px(16), ColorUtil.getForegroundColor());
+    hostServerButton = new JButton(_localeManager.getValue("b.host_server"));
+    hostServerButton.setIcon(serverIcon);
+    hostServerButton.setBounds(Scale.rect(28, sideButtonsY + 160, 125, 35));
+    hostServerButton.setHorizontalAlignment(SwingConstants.LEFT);
+    hostServerButton.setFont(Fonts.getFont("default", 11.0f, Font.BOLD));
+    hostServerButton.setFocusPainted(false);
+    hostServerButton.setFocusable(false);
+    hostServerButton.setBorderPainted(false);
+    hostServerButton.setBackground(CustomColors.INTERFACE_BUTTON_BACKGROUND);
+    hostServerButton.setForeground(Color.WHITE);
+    hostServerButton.setToolTipText(_localeManager.getValue("b.host_server"));
+    hostServerButton.addActionListener(action -> {
+      _ctx.getApp().showUI(ServerHostUI.class);
+    });
+    sidePane.add(hostServerButton);
+
     JButton discordButton = new JButton(ImageUtil.imageStreamToIcon(LauncherUI.class.getResourceAsStream("/rsrc/img/icon-discord.png")));
     discordButton.setBounds(Scale.rect(65, 440, 36, 36));
     discordButton.setToolTipText(_localeManager.getValue("b.discord"));
@@ -385,14 +404,14 @@ public class LauncherUI extends BaseUI
     sidePane.add(bugButton);
     bugButton.addActionListener(e -> DesktopUtil.openWebpage(LauncherGlobals.URL_BUG_REPORT));
 
-    Icon donateIcon = FontIcon.of(FontAwesome.USD, Scale.px(17), Color.WHITE);
+    Icon donateIcon = FontIcon.of(FontAwesome.COFFEE, Scale.px(17), Color.BLACK);
     JButton donateButton = new JButton(donateIcon);
     donateButton.setBounds(Scale.rect(149, 440, 36, 36));
     donateButton.setToolTipText(_localeManager.getValue("b.donate"));
     donateButton.setFocusPainted(false);
     donateButton.setFocusable(false);
     donateButton.setBorderPainted(false);
-    donateButton.setBackground(CustomColors.PREMIUM);
+    donateButton.setBackground(CustomColors.BUY_ME_A_COFFEE);
     sidePane.add(donateButton);
     donateButton.addActionListener(e -> DesktopUtil.openWebpage(LauncherGlobals.URL_DONATE));
 
@@ -1219,6 +1238,7 @@ public class LauncherUI extends BaseUI
   public JButton modButton;
   public JButton editorsButton;
   public JButton silverweaveButton;
+  public JButton hostServerButton;
   public JButton playerCountTooltipButton;
   public JLabel playerCountLabel;
   public JLabel selectedServerLabel;

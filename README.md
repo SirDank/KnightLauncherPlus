@@ -1,140 +1,88 @@
 <p align="center">
-    <img src="https://github.com/lucasluqui/KnightLauncher/blob/main/src/main/resources/rsrc/img/icon-128.png?raw=true" height="128">
+    <img src="src/main/resources/rsrc/img/icon-128.png" height="128">
 </p>
-<h1 align="center">Knight Launcher</h1>
+<h1 align="center">KnightLauncherPlus</h1>
 <p align="center">
-    <a href="https://github.com/lucasluqui/KnightLauncher/blob/main/LICENSE"><img alt="GitHub license" src="https://img.shields.io/github/license/lucasluqui/KnightLauncher?style=flat-square"></a>
-    <a href="https://github.com/lucasluqui/KnightLauncher/issues"><img alt="GitHub issues" src="https://img.shields.io/github/issues/lucasluqui/KnightLauncher?style=flat-square"></a>
-    <a href="https://github.com/lucasluqui/KnightLauncher/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/lucasluqui/KnightLauncher?style=flat-square"></a>
-</p>
-<p align="center">
-    <a href="https://github.com/lucasluqui/KnightLauncher/releases/"><img alt="Total downloads" src="https://img.shields.io/github/downloads/lucasluqui/KnightLauncher/total.svg"></a>
-    <a href="https://discord.gg/RAf499a"><img alt="Discord" src="https://img.shields.io/discord/653349356459786240" target="_blank"></a>
+    <a href="LICENSE"><img alt="GitHub license" src="https://img.shields.io/github/license/SirDank/KnightLauncherPlus?style=flat-square"></a>
+    <a href="https://github.com/SirDank/KnightLauncherPlus/issues"><img alt="GitHub issues" src="https://img.shields.io/github/issues/SirDank/KnightLauncherPlus?style=flat-square"></a>
+    <a href="https://github.com/SirDank/KnightLauncherPlus/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/SirDank/KnightLauncherPlus?style=flat-square"></a>
+    <a href="https://github.com/SirDank/KnightLauncherPlus/releases/"><img alt="Total downloads" src="https://img.shields.io/github/downloads/SirDank/KnightLauncherPlus/total.svg"></a>
+    <a href="https://dankware.alwaysdata.net/discord"><img alt="Discord" src="https://img.shields.io/badge/Discord-Dankware-5865F2?style=flat-square&logo=discord&logoColor=white" target="_blank"></a>
 </p>
 
-Open source game launcher for Spiral Knights. Supports user-friendly Java configuration, Discord integration, easier modding & much more.
+Open source game launcher for Spiral Knights with extended features, custom server support, and a built-in game server emulator.
 
-[![ko-fi](https://www.ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/W4W11S2JU)
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-Donate-yellow?style=flat-square&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/sirdankk)
+
+> **Notice**: KnightLauncherPlus is an independent hard fork of [KnightLauncher](https://github.com/lucasluqui/KnightLauncher) maintained by [SirDank](https://github.com/SirDank) and Dankware. It incorporates extended private server functionality and an embedded server host while staying updated with upstream client modernizations.
 
 -----
 
 ## Features
-- Install and uninstall game mods in an easy and noob-friendly way without worrying about game updates.
-- Jump into several editors to create custom user-generated content or simply preview game models.
-- Intuitive and user-friendly UI for configuring advanced Java settings.
-- Re-install and verify your game files with ease.
-- Discord integration that shows your current game activity on your Discord status. This feature is only available on Windows.
-- Launch alt accounts with lesser resources assigned to them avoiding losing performance on your main instance.
-- Future-proofed to support third party servers. Third party server support <ins>**will not**</ins> be enabled while Grey Havens' Official servers are still online, unless explicitly permitted by their respective right owners and/or law.
-- And more...
+- **Built-in Game Server Hosting**: Run your own Spiral Knights server directly from the launcher with 1-click startup, zero external databases required, live console monitoring, and Haven & Training Hall world entry.
+- **Custom & Private Server Integration**: Join custom servers or your own local/LAN server with dedicated per-server settings and stock client compatibility.
+- **Modern Dark Black Theme**: Redesigned neutral dark theme across all launcher interfaces.
+- **Streamlined Modding**: Install and uninstall game mods easily without worrying about game updates.
+- **Editor Suite**: Launch into Silverweave, Model, Scene, Particle, and Crucible editors to create custom content or preview game models.
+- **Advanced Java Configuration**: Intuitive UI for configuring JVM runtimes (Java 25 LTS), memory limits, and GC parameters.
+- **File Verification & Rebuilding**: Re-install and verify game files with ease.
+- **Discord Integration**: Rich Presence showing current in-game status and activity.
+- **Alt Account Mode**: Launch lightweight secondary clients with reduced system resource overhead.
 
 ## Downloading & Installing
 
-1. Prerequisites:
-   - Java installed.
-     - **Windows**: You can get the Java installer [from here](https://www.java.com/en/download/).
-     - **macOS**: Java is already installed by default.
-     - **Linux**: Open your terminal and run any of these to install Java, depending on your package manager: `apt install default-jre`, `yum install java`, `pacman -S jre-openjdk`, `apk add openjdk8`. 
-2. Download the latest Knight Launcher release ZIP file [here](https://github.com/lucasluqui/KnightLauncher/releases/latest).
-3. Extract the downloaded `KnightLauncher-x.x.x.zip` ZIP file to your Spiral Knights directory (`x.x.x` will vary depending on the current version).
-   - <ins>**Windows**</ins>:
-     - **Steam**: Steam installations can be found by right-clicking the game on your Steam library and selecting "Manage" → "Browse Local Files," you can also look for it at `<Your Steam Folder>\steamapps\common\Spiral Knights`.
-     - **Standalone**: Standalone installations can be found by first right-clicking the Spiral Knights shortcut on your desktop, clicking "Open File Location," and once you're there you must enter the `app` folder. You can also look for it at `<Your User Folder>\AppData\Local\Spiral Knights\app`
-   - <ins>**macOS**</ins>:
-     - **Steam**: Steam installations can be found by right-clicking the game on your Steam library and then selecting "Manage" → "Browse Local Files". This is where you must extract the zip file you downloaded earlier.
-     - **Standalone**: Standalone installations can be found by searching "Spiral Knights" in Applications, then right click on the result and select "Show in Finder", finally right click the "Spiral Knights" Application file and select "Show Package Contents". Once you're there, enter the `Contents` folder and then the `app` folder. This is where you must extract the zip file you downloaded earlier.
-   - <ins>**Linux**</ins>:
-     - **Steam**: Steam installations can be found by right-clicking the game on your Steam library and selecting "Manage" → "Browse Local Files".
-     - **Standalone**: There's no standalone download for Linux, you must download the game through Steam. Once that's done, follow the instructions above to install the launcher via Steam on Linux, and you'll be able to set your platform as standalone in the launcher's settings.
+1. **Prerequisites**:
+   - Java 25 or Java 8+ installed. The launcher will automatically configure or update to Java 25 LTS when launched.
+2. **Download**:
+   - Download the latest `KnightLauncher-x.x.x.zip` from [Releases](https://github.com/SirDank/KnightLauncherPlus/releases/latest).
+3. **Extract**:
+   - Extract the ZIP archive into your Spiral Knights directory (where `getdown-pro.jar` is located).
+     - **Windows (Steam)**: `<SteamFolder>\steamapps\common\Spiral Knights`
+     - **Windows (Standalone)**: `<UserFolder>\AppData\Local\Spiral Knights\app`
+     - **macOS / Linux**: Inside your game's application directory.
+4. **Run**:
+   - Launch `KnightLauncher.jar` or use `KnightLauncher_windows.bat` / `KnightLauncher_mac_linux.sh`.
 
-5. Double-click the `KnightLauncher.jar` JAR file. The launcher should now boot up.
+## Server Hosting Quick Start
 
-6. If nothing happens, double-click the `KnightLauncher_windows.bat` file or `KnightLauncher_mac_linux.sh` file depending on your operating system.
-
-> [!WARNING]
-> **For macOS users**: If a window pops up displaying "macOS cannot verify that this app is free from malware" click on "Done", then go to your System Settings → Privacy & Security, scroll to the very bottom of this panel, and where it says "KnightLauncher.jar was blocked to protect your Mac." click on "Open Anyway", then "Open Anyway" again on the pop up message that appears afterwards, and finally verify using Touch ID or your user's password. This should prevent the first pop up from appearing again.
-
-> [!NOTE]
-> Bear in mind that the installation locations listed above are the defaults for their respective operating systems, however your mileage may vary if you've installed the game in a custom folder.
-
-Still not working? Open a thread in [Discord's tech support channel](https://discord.gg/m6TT9PM9B7) so the community can help you.
-
-## Updating
-
-The launcher is capable of auto-updating itself given the option is enabled in the launcher's settings, which will be by default. To manually update, follow these steps:
-1. Download the latest Knight Launcher release ZIP file [here](https://github.com/lucasluqui/KnightLauncher/releases/latest).
-2. Extract the downloaded ZIP file to your Spiral Knights folder, the same way you did when installing it for the first time. Guidance on finding your game folder can be found above at "Downloading & Installing."
-
-After following those steps, the launcher will be up to date.
+1. Navigate to the **Host Server** tab in KnightLauncherPlus.
+2. Verify the port (default `47624`).
+3. Click **Start Server**. The live console will display the server startup log and bound IP addresses.
+4. Click **Connect to My Server** to select your server in the switcher, then click **Launch** to enter the game!
 
 ## Building From Source
-To build Knight Launcher follow these steps:
 
-1. Prerequisites 
-   - [Java 25 JDK](https://adoptium.net/temurin/releases/?version=25) installed.
-   - [Maven](https://maven.apache.org/download.cgi) installed:
-     - **Windows**: Download the ZIP from the link above, extract, then add `bin/` to your `PATH`.
-     - **macOS (Homebrew)**: `brew install maven`.
-     - **Linux (APT)**: `apt install maven`.
-   - [Git](https://git-scm.com/downloads) installed:
-     - **Windows**: Download the installer from [git-scm.com](https://git-scm.com/downloads) and follow the setup.
-     - **macOS (Homebrew)**: `brew install git`.
-     - **Linux (APT)**: `apt install git`.
-2. Clone the repository.
-   - `git clone https://github.com/lucasluqui/KnightLauncher.git`
-3. Copy `projectx-pcode.jar` from your Spiral Knights `code` directory into the project's `lib` directory.
-4. Create a copy of `deploy.properties.template` in the repository's root directory then remove the `.template` extension. Fill any missing values.
-5. Validate all Maven dependencies.
-   - `mvn validate`
-6. Build the package using Maven. By default, it will build for a development environment, you can target prod instead by adding `-Denv=prod`.
-   - `mvn clean package`
-   - `mvn -Denv=prod clean package`
-7. Copy the package built by Maven to your Spiral Knights folder and run it.
-   - `java -jar KnightLauncher.jar`
+1. Prerequisites:
+   - JDK 25 installed (`javac` and `java` on `PATH`).
+   - Apache Maven installed (`mvn` on `PATH`).
+   - Git installed.
+2. Clone repository:
+   ```bash
+   git clone https://github.com/SirDank/KnightLauncherPlus.git
+   cd KnightLauncherPlus
+   ```
+3. Copy `projectx-pcode.jar` from your Spiral Knights `code/` folder into `lib/`:
+   ```powershell
+   Copy-Item "<GameDir>\code\projectx-pcode.jar" "lib\projectx-pcode.jar"
+   ```
+4. Build package:
+   ```bash
+   mvn clean package
+   # Or for production release:
+   mvn -Denv=prod clean package
+   ```
+5. Run:
+   ```bash
+   java -jar target/KnightLauncher.jar
+   ```
 
-> [!NOTE]
-> The launcher runs on Java 25. Its entry point (`com.lucasluqui.launcher.Main`, under `src/main/java8`) is compiled for Java 8 instead, so that
-> starting it with an older Java restarts it on a Java 25 runtime: its own one in `KnightLauncher/runtime`, or the one the game ships with.
-> Code under `src/main/java8` must only use Java 8 APIs, and no launcher classes or libraries outside of `src/main/java8`.
-
-## Discord
-We've built an amazing community on Discord focused on both helping newcomers get along with the launcher and giving a hand to modders, come join us!
-
-https://discord.gg/RAf499a
+## Community & Support
+- **Discord**: [Join our Dankware Discord](https://dankware.alwaysdata.net/discord)
+- **Support the Project**: [Buy Me A Coffee](https://buymeacoffee.com/sirdankk)
 
 -----
 
-## Credits
-
-Unless hyperlinked names shown below represent Discord usernames. Hyperlinked names correspond to GitHub accounts.
-
-### Contributors
-<a href="https://github.com/lucasluqui/KnightLauncher/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=lucasluqui/KnightLauncher" />
-</a>
-
-### Translators
-Translators are credited in their respective language file, [click here to browse](https://github.com/lucasluqui/KnightLauncher/tree/main/src/main/resources/rsrc/lang).
-
-Thank you all for helping to make Knight Launcher usable for everyone worldwide!
-
-### QA/Testing
-- Nurr, yihleego, Bidoknight, Carpvindra, Mushspore, CafuneAndChill, Xan, analarmingalarm, parma, loonadra, ultrongr, milliath, Puzovoz, Stret, 3xample, top_platinum, Criptobeta.
-
-### Third Party Libraries
-The following open source libraries are used by Knight Launcher:
-
-- [Guava](https://github.com/google/guava)
-- [Guice](https://github.com/google/guice)
-- [Apache Commons IO](https://github.com/apache/commons-io)
-- [Apache Commons Text](https://github.com/apache/commons-text)
-- [Image4J](https://github.com/imcdonagh/image4j)
-- [Zip4J](https://github.com/srikanth-lingala/zip4j)
-- [flatlaf](https://github.com/JFormDesigner/FlatLaf)
-- [discord-rpc](https://github.com/Vatuu/discord-rpc)
-- [mslinks](https://github.com/DmitriiShamrikov/mslinks)
-- [org.json](https://github.com/eskatos/org.json-java)
-- [jIconFont](https://github.com/jIconFont)
-- [samskivert](https://github.com/samskivert/samskivert)
-- [JHLabs Filters](http://www.jhlabs.com/)
-- [OSHI](https://github.com/oshi/oshi)
+## Credits & Upstream
+- Built upon the foundations of [KnightLauncher](https://github.com/lucasluqui/KnightLauncher) by Lucas Allegri.
+- Server emulator concepts derived from reverse-engineered Three Rings architectures and community projects (`spiral-knights-server`, `thetya`).
+- Spiral Knights is created and owned by Grey Havens / SEGA. KnightLauncherPlus is an independent open-source project.

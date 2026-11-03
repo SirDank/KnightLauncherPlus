@@ -343,8 +343,6 @@ public class ModManager
       log.error(e);
     }
 
-    // Make sure no cheat mod slips in.
-    if (selectedServer.isOfficial()) extractSafeguard();
 
     // Clean the game from unwanted files.
     clean();
@@ -439,18 +437,6 @@ public class ModManager
     _discordPresenceClient.setDetails(_localeManager.getValue("presence.ready"));
   }
 
-  public void extractSafeguard ()
-  {
-    try {
-      log.info("Extracting safeguard...");
-      ZipUtil.extractFileWithinJar("/rsrc/modules/safeguard/bundle.zip", LauncherGlobals.USER_DIR + "/KnightLauncher/modules/safeguard/bundle.zip");
-      ZipUtil.unzip(LauncherGlobals.USER_DIR + "/KnightLauncher/modules/safeguard/bundle.zip", LauncherGlobals.USER_DIR + "/rsrc/");
-      log.info("Extracted safeguard");
-    } catch (IOException e) {
-      log.info("Failed to extract safeguard");
-      log.error(e);
-    }
-  }
 
   private int getEnabledModsHash ()
   {

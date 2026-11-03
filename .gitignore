@@ -32,7 +32,10 @@ hs_err_pid*
 KnightLauncher.properties
 
 # Rsrc folder
-rsrc/
+/rsrc/
+
+# Runtime scenes
+/scenes/
 
 # IDEA run configurations
 .idea/runConfigurations/
@@ -42,3 +45,8 @@ settings.xml
 
 # Deploy settings
 deploy.properties
+/scratch
+
+# VS Code
+.vscode/
+scratch/

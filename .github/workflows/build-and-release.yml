@@ -152,10 +152,10 @@ jobs:
           and double click it.
 
           .BAT script (Windows):
-          https://github.com/lucasluqui/KnightLauncher/blob/main/scripts/KnightLauncher_windows.bat
+          https://github.com/SirDank/KnightLauncherPlus/blob/main/scripts/KnightLauncher_windows.bat
 
           .SH script (macOS, Linux):
-          https://github.com/lucasluqui/KnightLauncher/blob/main/scripts/KnightLauncher_mac_linux.sh
+          https://github.com/SirDank/KnightLauncherPlus/blob/main/scripts/KnightLauncher_mac_linux.sh
 
 
           For a more detailed guide please click the following link:
@@ -165,10 +165,10 @@ jobs:
 
           ---------------------------------------------------------------
 
-          Author: https://github.com/lucasluqui
-          Source: https://github.com/lucasluqui/KnightLauncher
-          Releases: https://github.com/lucasluqui/KnightLauncher/releases
-          Discord: https://discord.gg/8rE4GeAMza
+          Author: https://github.com/SirDank
+          Source: https://github.com/SirDank/KnightLauncherPlus
+          Releases: https://github.com/SirDank/KnightLauncherPlus/releases
+          Discord: https://dankware.alwaysdata.net/discord
           EOF
 
       - name: Create ZIP archive

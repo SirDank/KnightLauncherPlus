@@ -6,8 +6,8 @@ import java.io.File;
 
 public class LauncherGlobals
 {
-  public static final String GITHUB_AUTHOR = "lucasluqui";
-  public static final String GITHUB_REPO = "KnightLauncher";
+  public static final String GITHUB_AUTHOR = "SirDank";
+  public static final String GITHUB_REPO = "KnightLauncherPlus";
   public static final String GITHUB_API_RELEASES = "https://api.github.com/repos/" + GITHUB_AUTHOR + "/" + GITHUB_REPO + "/releases?per_page=10";
   public static final String GITHUB_URL = "https://github.com/";
   public static final String GITHUB_URL_REPO = GITHUB_URL + GITHUB_AUTHOR + "/" + GITHUB_REPO + "/";
@@ -17,11 +17,11 @@ public class LauncherGlobals
 
   public static final String URL_CDN = "https://" + CDN_ENDPOINT + "/knightlauncher/v" + CDN_VERSION + "/";
   public static final String URL_JAVA_REDIST = URL_CDN + "java/windows/{version}/redist.zip";
-  public static final String URL_DISCORD = "https://discord.gg/8rE4GeAMza";
-  public static final String URL_GET_MODS = "https://discord.gg/fAR8qtrat2";
-  public static final String URL_DONATE = "https://ko-fi.com/lucasallegri";
+  public static final String URL_DISCORD = "https://dankware.alwaysdata.net/discord";
+  public static final String URL_GET_MODS = "https://dankware.alwaysdata.net/discord";
+  public static final String URL_DONATE = "https://buymeacoffee.com/sirdankk";
   public static final String URL_RELEASES = GITHUB_URL_REPO + "releases";
-  public static final String URL_BUG_REPORT = "https://github.com/lucasluqui/KnightLauncher/issues";
+  public static final String URL_BUG_REPORT = "https://github.com/SirDank/KnightLauncherPlus/issues";
 
   public static final String USER_DIR = System.getProperty("user.dir");
 
@@ -37,7 +37,7 @@ public class LauncherGlobals
 
   // Added to the command line of every Alt Mode client we launch, so they can be told apart from regular ones.
   // The game doesn't look at it.
-  public static final String ALT_MODE_ARG = "-Dknightlauncher.alt_mode=true";
+  public static final String ALT_MODE_ARG = "-DKnightLauncherPlus.alt_mode=true";
 
   public static final String[] GETDOWN_ARGS;
   public static final String[] GETDOWN_ARGS_MAC;

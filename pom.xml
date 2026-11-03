@@ -43,6 +43,20 @@
   </properties>
 
   <dependencies>
+    <!--
+      For this local dependency, you must copy 'projectx-pcode.jar' from the game's 'code' directory into the
+      project's 'lib' directory, as it would be illegal for us to bundle proprietary software.
+
+      The use of this dependency is for 'com.lucasluqui.bootstrap.Bootstrap' to take over and load in code mods
+      when it is required to.
+    -->
+    <dependency>
+      <groupId>pcode</groupId>
+      <artifactId>pcode</artifactId>
+      <version>1.0.0</version>
+      <scope>system</scope>
+      <systemPath>${project.basedir}/lib/projectx-pcode.jar</systemPath>
+    </dependency>
     <dependency>
       <groupId>com.google.guava</groupId>
       <artifactId>guava</artifactId>
@@ -158,20 +172,6 @@
       <version>0.7.2</version>
     </dependency>
 
-    <!--
-      For this local dependency, you must copy 'projectx-pcode.jar' from the game's 'code' directory into the
-      project's 'lib' directory, as it would be illegal for us to bundle proprietary software.
-
-      The use of this dependency is for 'com.lucasluqui.bootstrap.Bootstrap' to take over and load in code mods
-      when it is required to.
-    -->
-    <dependency>
-      <groupId>pcode</groupId>
-      <artifactId>pcode</artifactId>
-      <version>1.0.0</version>
-      <scope>system</scope>
-      <systemPath>${project.basedir}/lib/projectx-pcode.jar</systemPath>
-    </dependency>
   </dependencies>
 
   <build>

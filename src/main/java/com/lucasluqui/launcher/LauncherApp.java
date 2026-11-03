@@ -1,5 +1,8 @@
 package com.lucasluqui.launcher;
 
+import com.lucasluqui.launcher.server.ServerHostManager;
+import com.lucasluqui.launcher.server.ui.ServerHostUI;
+
 import com.lucasluqui.dialog.Dialog;
 import com.lucasluqui.discord.DiscordPresenceClient;
 import com.lucasluqui.download.DownloadManager;
@@ -253,6 +256,7 @@ public class LauncherApp
     this.initUI(ModListUI.class);
     this.initUI(EditorsUI.class);
     this.initUI(ChangelogUI.class);
+    this.initUI(ServerHostUI.class);
   }
 
   private <T extends BaseUI> void initUI(Class<T> clazz)
@@ -280,9 +284,6 @@ public class LauncherApp
 
     checkGetdown();
 
-    if (!FileUtil.fileExists(LauncherGlobals.USER_DIR + "/KnightLauncher/modules/safeguard/bundle.zip")) {
-      _modManager.extractSafeguard();
-    }
 
     _flamingoManager.updateServerList();
 
@@ -1074,6 +1075,7 @@ public class LauncherApp
   @Inject protected DownloadManager _downloadManager;
   @Inject protected KeyboardController _keyboardController;
   @Inject protected RuntimeManager _runtimeManager;
+  @Inject protected ServerHostManager _serverHostManager;
 
   protected String _latestRelease = null;
   protected List<Release> _releases = new ArrayList<>();
