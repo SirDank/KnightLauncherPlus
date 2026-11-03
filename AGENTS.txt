@@ -10,10 +10,11 @@ KnightLauncherPlus is an independent hard fork of `lucasluqui/KnightLauncher`. I
 
 ## Build & Runtime Environment
 - **Java**: Java 25 LTS (64-bit HotSpot VM).
-- **Build Tool**: Apache Maven (`pom.xml`).
-  - Standard development build: `mvn clean package`
-  - Production build: `mvn -Denv=prod clean package`
-  - Automated tests: `mvn test`
+- **Build Tool**: Apache Maven (`pom.xml`) via repository wrapper (`mvnw` / `mvnw.cmd`).
+  - Standard development build: `./mvnw clean package`
+  - Production build: `./mvnw -Denv=prod clean package`
+  - Automated tests: `./mvnw test`
+  - 1-click build & deploy to local game dir: `scripts\build_and_deploy.bat` (or `./scripts/build_and_deploy.sh`)
 - **Game Classpath Dependencies**:
   - `lib/projectx-pcode.jar`: Required for compiling against Three Rings Clyde, Presents, Tudey, and Spiral Knights data classes. Copied from `<game>/code/projectx-pcode.jar`.
   - `lib/discord-rpc-20220830184500.jar`

@@ -1534,6 +1534,24 @@ public class ClientSession implements Runnable {
         sendMessage(pong);
     }
 
+    public int getSessionId() {
+        return this.connectionId;
+    }
+
+    public String getUsername() {
+        return (this.playerObject != null && this.playerObject.username != null)
+            ? this.playerObject.username.toString()
+            : "HeroKnight";
+    }
+
+    public java.net.SocketAddress getRemoteAddress() {
+        try {
+            return this.channel != null ? this.channel.getRemoteAddress() : null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     public void close() {
         running = false;
         if (cleanedUp.compareAndSet(false, true)) {

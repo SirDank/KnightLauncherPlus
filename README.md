@@ -14,7 +14,7 @@ Open source game launcher for Spiral Knights with extended features, custom serv
 
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-Donate-yellow?style=flat-square&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/sirdankk)
 
-> **Notice**: KnightLauncherPlus is an independent hard fork of [KnightLauncher](https://github.com/lucasluqui/KnightLauncher) maintained by [SirDank](https://github.com/SirDank) and Dankware. It incorporates extended private server functionality and an embedded server host while staying updated with upstream client modernizations.
+> **Notice**: KnightLauncherPlus is an independent hard fork of [KnightLauncher](https://github.com/lucasluqui/KnightLauncher) maintained by [SirDank](https://github.com/SirDank). It incorporates extended private server functionality and an embedded server host while staying updated with upstream client modernizations.
 
 -----
 
@@ -50,12 +50,12 @@ Open source game launcher for Spiral Knights with extended features, custom serv
 3. Click **Start Server**. The live console will display the server startup log and bound IP addresses.
 4. Click **Connect to My Server** to select your server in the switcher, then click **Launch** to enter the game!
 
-## Building From Source
+## Building & Quick Deploying
 
 1. Prerequisites:
    - JDK 25 installed (`javac` and `java` on `PATH`).
-   - Apache Maven installed (`mvn` on `PATH`).
    - Git installed.
+   - (Maven is automatically handled via the bundled `mvnw` wrapper).
 2. Clone repository:
    ```bash
    git clone https://github.com/SirDank/KnightLauncherPlus.git
@@ -65,15 +65,20 @@ Open source game launcher for Spiral Knights with extended features, custom serv
    ```powershell
    Copy-Item "<GameDir>\code\projectx-pcode.jar" "lib\projectx-pcode.jar"
    ```
-4. Build package:
-   ```bash
-   mvn clean package
-   # Or for production release:
-   mvn -Denv=prod clean package
+4. **1-Click Build & Deploy**:
+   Automatically detects your Spiral Knights installation directory, builds the production JAR, and deploys it:
+   ```cmd
+   scripts\build_and_deploy.bat
+   # Or on macOS / Linux:
+   ./scripts/build_and_deploy.sh
+   # To launch directly after deployment:
+   scripts\build_and_deploy.bat --run
    ```
-5. Run:
+5. **Manual Build via Maven Wrapper**:
    ```bash
-   java -jar target/KnightLauncher.jar
+   ./mvnw clean package
+   # Or for production release:
+   ./mvnw -Denv=prod clean package
    ```
 
 ## Community & Support

@@ -45,8 +45,4 @@ settings.xml
 
 # Deploy settings
 deploy.properties
-/scratch
-
-# VS Code
-.vscode/
 scratch/

@@ -251,10 +251,11 @@ public class SpiralServer {
         if (command == null || command.trim().isEmpty()) return "";
         String cmd = command.trim();
         log("> " + cmd);
-        if ("stop".equalsIgnoreCase(cmd) || "exit".equalsIgnoreCase(cmd)) {
+        String lower = cmd.toLowerCase();
+        if ("stop".equals(lower) || "exit".equals(lower)) {
             stop();
             return "Server stopping...";
-        } else if ("status".equalsIgnoreCase(cmd)) {
+        } else if ("status".equals(lower)) {
             String status = "[Status] Running: " + running
                 + ", Active sessions: " + sessions.size()
                 + ", Total accepted: " + (sessionCounter.get() - 1)
@@ -262,8 +263,42 @@ public class SpiralServer {
                 + ", Training players: " + sceneNetwork.participantCount(SceneManager.TRAINING_SCENE_ID);
             log(status);
             return status;
-        } else if ("help".equalsIgnoreCase(cmd)) {
-            String help = "Available commands: status, stop, help";
+        } else if ("players".equals(lower)) {
+            if (sessions.isEmpty()) {
+                log("[Players] No players currently connected.");
+                return "No players online.";
+            }
+            StringBuilder sb = new StringBuilder("[Players] Connected (" + sessions.size() + "):\n");
+            for (ClientSession session : sessions.values()) {
+                sb.append(" - Session #").append(session.getSessionId())
+                  .append(" | ").append(session.getUsername() != null ? session.getUsername() : "HeroKnight")
+                  .append(" (").append(session.getRemoteAddress()).append(")\n");
+            }
+            String out = sb.toString().trim();
+            log(out);
+            return out;
+        } else if (lower.startsWith("broadcast ") || lower.startsWith("say ")) {
+            String msg = cmd.substring(cmd.indexOf(' ') + 1).trim();
+            log("[BROADCAST] " + msg);
+            return "Broadcasted message to all sessions.";
+        } else if (lower.startsWith("kick ")) {
+            try {
+                int targetId = Integer.parseInt(cmd.substring(5).trim());
+                ClientSession s = sessions.get(targetId);
+                if (s != null) {
+                    s.close();
+                    log("[KICK] Kicked session #" + targetId);
+                    return "Kicked session #" + targetId;
+                } else {
+                    log("[KICK] Session #" + targetId + " not found.");
+                    return "Session not found.";
+                }
+            } catch (Exception ex) {
+                log("[KICK] Invalid syntax. Usage: kick <sessionId>");
+                return "Invalid syntax.";
+            }
+        } else if ("help".equals(lower)) {
+            String help = "Available commands: status, players, broadcast <msg>, kick <id>, stop, help";
             log(help);
             return help;
         } else {

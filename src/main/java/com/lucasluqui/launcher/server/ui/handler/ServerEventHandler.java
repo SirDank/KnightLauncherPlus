@@ -7,7 +7,10 @@ import javax.swing.Timer;
 
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
+import javax.swing.JOptionPane;
+import com.lucasluqui.dialog.Dialog;
 import com.lucasluqui.launcher.LauncherContext;
+import com.lucasluqui.launcher.LocaleManager;
 import com.lucasluqui.launcher.flamingo.FlamingoManager;
 import com.lucasluqui.launcher.flamingo.data.Server;
 import com.lucasluqui.launcher.server.ServerHostManager;
@@ -22,6 +25,7 @@ public class ServerEventHandler {
     @Inject private LauncherContext _ctx;
     @Inject private ServerHostManager _hostManager;
     @Inject private FlamingoManager _flamingoManager;
+    @Inject private LocaleManager _localeManager;
 
     private ServerHostUI _ui;
     private Timer _statusTimer;
@@ -79,6 +83,8 @@ public class ServerEventHandler {
         String text = addr + ":" + port;
         StringSelection selection = new StringSelection(text);
         Toolkit.getDefaultToolkit().getSystemClipboard().setContents(selection, null);
+        String msg = _localeManager != null ? _localeManager.getValue("m.address_copied") : "Server address copied to clipboard.";
+        Dialog.push(msg, JOptionPane.INFORMATION_MESSAGE);
     }
 
     public void updateStatus() {

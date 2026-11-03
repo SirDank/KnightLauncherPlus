@@ -78,7 +78,7 @@ public class ServerHostUI extends BaseUI {
 
     private void compose() {
         guiFrame.setVisible(false);
-        guiFrame.setTitle("Server Hosting");
+        guiFrame.setTitle(_localeManager.getValue("t.server_hosting"));
         guiFrame.setBounds(Scale.rect(100, 100, this.width, this.height));
         guiFrame.setResizable(false);
         guiFrame.setUndecorated(true);
@@ -93,7 +93,7 @@ public class ServerHostUI extends BaseUI {
         topContainer.setBackground(CustomColors.INTERFACE_MAINPANE_BACKGROUND);
 
         // Header Title
-        titleLabel = new JLabel("Server Hosting");
+        titleLabel = new JLabel(_localeManager.getValue("t.server_hosting"));
         titleLabel.setFont(Fonts.getFont("default", 26.0f, Font.BOLD));
         titleLabel.setForeground(Color.WHITE);
         titleLabel.putClientProperty(FlatClientProperties.STYLE, "margin: 0,0,4,0");
@@ -112,17 +112,17 @@ public class ServerHostUI extends BaseUI {
         statusBadge.setForeground(COLOR_STOPPED);
         leftStatus.add(statusBadge);
 
-        statusText = new JLabel("Server Stopped");
+        statusText = new JLabel(_localeManager.getValue("m.server_stopped"));
         statusText.setFont(Fonts.getFont("default", 12.0f, Font.BOLD));
         statusText.setForeground(Color.WHITE);
         leftStatus.add(statusText);
 
-        playersText = new JLabel("0 Players Online");
+        playersText = new JLabel(_localeManager.getValue("m.server_no_players"));
         playersText.setFont(Fonts.getFont("default", 11.0f, Font.PLAIN));
         playersText.setForeground(new Color(0xAA, 0xAA, 0xAA));
         leftStatus.add(playersText);
 
-        uptimeText = new JLabel("Uptime: --");
+        uptimeText = new JLabel(_localeManager.getValue("m.server_uptime_none"));
         uptimeText.setFont(Fonts.getFont("default", 11.0f, Font.PLAIN));
         uptimeText.setForeground(new Color(0x88, 0x88, 0x88));
         leftStatus.add(uptimeText);
@@ -133,12 +133,12 @@ public class ServerHostUI extends BaseUI {
         JPanel rightStatus = new JPanel(new FlowLayout(FlowLayout.RIGHT, Scale.px(6), 0));
         rightStatus.setBackground(new Color(0x18, 0x18, 0x1C));
 
-        lanAddressText = new JLabel("LAN: " + hostManager.getLanAddress());
+        lanAddressText = new JLabel(_localeManager.getValue("m.server_lan_address", hostManager.getLanAddress()));
         lanAddressText.setFont(Fonts.getFont("code", 11.0f, Font.PLAIN));
         lanAddressText.setForeground(new Color(0x9E, 0x9E, 0x9E));
         rightStatus.add(lanAddressText);
 
-        copyLanButton = new JButton("Copy");
+        copyLanButton = new JButton(_localeManager.getValue("b.copy_lan_ip"));
         copyLanButton.setFont(Fonts.getFont("default", 10.5f, Font.PLAIN));
         copyLanButton.setBackground(CustomColors.INTERFACE_BUTTON_BACKGROUND);
         copyLanButton.setForeground(Color.WHITE);
@@ -157,7 +157,7 @@ public class ServerHostUI extends BaseUI {
         JPanel leftControls = new JPanel(new FlowLayout(FlowLayout.LEFT, Scale.px(8), 0));
         leftControls.setBackground(CustomColors.INTERFACE_MAINPANE_BACKGROUND);
 
-        JLabel portLabel = new JLabel("Port:");
+        JLabel portLabel = new JLabel(_localeManager.getValue("m.server_port"));
         portLabel.setFont(Fonts.getFont("default", 11.0f, Font.BOLD));
         portLabel.setForeground(Color.WHITE);
         leftControls.add(portLabel);
@@ -169,7 +169,7 @@ public class ServerHostUI extends BaseUI {
         portField.putClientProperty(FlatClientProperties.STYLE, "arc: 6; margin: 3,6,3,6");
         leftControls.add(portField);
 
-        startButton = new JButton("Start Server");
+        startButton = new JButton(_localeManager.getValue("b.start_server"));
         startButton.setIcon(FontIcon.of(FontAwesome.PLAY, Scale.px(12), Color.WHITE));
         startButton.setFont(Fonts.getFont("default", 11.0f, Font.BOLD));
         startButton.setBackground(COLOR_RUNNING);
@@ -179,7 +179,7 @@ public class ServerHostUI extends BaseUI {
         startButton.addActionListener(e -> eventHandler.startServer());
         leftControls.add(startButton);
 
-        stopButton = new JButton("Stop Server");
+        stopButton = new JButton(_localeManager.getValue("b.stop_server"));
         stopButton.setIcon(FontIcon.of(FontAwesome.STOP, Scale.px(12), Color.WHITE));
         stopButton.setFont(Fonts.getFont("default", 11.0f, Font.BOLD));
         stopButton.setBackground(COLOR_STOPPED);
@@ -189,7 +189,7 @@ public class ServerHostUI extends BaseUI {
         stopButton.addActionListener(e -> eventHandler.stopServer());
         leftControls.add(stopButton);
 
-        restartButton = new JButton("Restart");
+        restartButton = new JButton(_localeManager.getValue("b.restart_server"));
         restartButton.setIcon(FontIcon.of(FontAwesome.REFRESH, Scale.px(12), Color.WHITE));
         restartButton.setFont(Fonts.getFont("default", 11.0f, Font.BOLD));
         restartButton.setBackground(CustomColors.INTERFACE_BUTTON_BACKGROUND);
@@ -204,14 +204,14 @@ public class ServerHostUI extends BaseUI {
         JPanel rightControls = new JPanel(new FlowLayout(FlowLayout.RIGHT, Scale.px(8), 0));
         rightControls.setBackground(CustomColors.INTERFACE_MAINPANE_BACKGROUND);
 
-        connectButton = new JButton("Connect & Play");
+        connectButton = new JButton(_localeManager.getValue("b.connect_server"));
         connectButton.setIcon(FontIcon.of(FontAwesome.GAMEPAD, Scale.px(13), Color.WHITE));
         connectButton.setFont(Fonts.getFont("default", 11.0f, Font.BOLD));
         connectButton.setBackground(COLOR_ACCENT);
         connectButton.setForeground(Color.WHITE);
         connectButton.setFocusPainted(false);
         connectButton.putClientProperty(FlatClientProperties.STYLE, "arc: 6; borderWidth: 0; margin: 4,12,4,12");
-        connectButton.setToolTipText("Switch launcher to Local Server and launch game");
+        connectButton.setToolTipText(_localeManager.getValue("tt.connect_server"));
         connectButton.addActionListener(e -> eventHandler.connectAndLaunch());
         rightControls.add(connectButton);
 
@@ -230,7 +230,7 @@ public class ServerHostUI extends BaseUI {
 
         if (running) {
             statusBadge.setForeground(COLOR_RUNNING);
-            statusText.setText("Server Running (Port " + port + ")");
+            statusText.setText(_localeManager.getValue("m.server_running") + " (" + _localeManager.getValue("m.server_port") + " " + port + ")");
             startButton.setEnabled(false);
             stopButton.setEnabled(true);
             restartButton.setEnabled(true);
@@ -238,7 +238,7 @@ public class ServerHostUI extends BaseUI {
             portField.setEditable(false);
         } else {
             statusBadge.setForeground(COLOR_STOPPED);
-            statusText.setText("Server Stopped");
+            statusText.setText(_localeManager.getValue("m.server_stopped"));
             startButton.setEnabled(true);
             stopButton.setEnabled(false);
             restartButton.setEnabled(false);
@@ -246,16 +246,22 @@ public class ServerHostUI extends BaseUI {
             portField.setEditable(true);
         }
 
-        playersText.setText(players + (players == 1 ? " Player Online" : " Players Online"));
-        lanAddressText.setText("LAN: " + hostManager.getLanAddress() + ":" + port);
+        if (players == 0) {
+            playersText.setText(_localeManager.getValue("m.server_no_players"));
+        } else if (players == 1) {
+            playersText.setText(_localeManager.getValue("m.server_player_count", "1"));
+        } else {
+            playersText.setText(_localeManager.getValue("m.server_players_count", String.valueOf(players)));
+        }
+        lanAddressText.setText(_localeManager.getValue("m.server_lan_address", hostManager.getLanAddress() + ":" + port));
 
         if (uptimeMs > 0) {
             long seconds = (uptimeMs / 1000) % 60;
             long minutes = (uptimeMs / (1000 * 60)) % 60;
             long hours = (uptimeMs / (1000 * 60 * 60));
-            uptimeText.setText(String.format("Uptime: %02d:%02d:%02d", hours, minutes, seconds));
+            uptimeText.setText(_localeManager.getValue("m.server_uptime", String.format("%02d:%02d:%02d", hours, minutes, seconds)));
         } else {
-            uptimeText.setText("Uptime: --");
+            uptimeText.setText(_localeManager.getValue("m.server_uptime_none"));
         }
     }
 

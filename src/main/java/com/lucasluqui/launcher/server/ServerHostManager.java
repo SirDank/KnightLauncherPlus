@@ -45,6 +45,7 @@ public class ServerHostManager {
         }
         this._port = port > 0 ? port : SpiralServer.DEFAULT_PORT;
         try {
+            _settingsManager.setValue("server.port", String.valueOf(this._port));
             _server = new SpiralServer(this._port);
             _server.addLogListener(this::dispatchLog);
 
@@ -92,7 +93,14 @@ public class ServerHostManager {
     }
 
     public int getServerPort() {
-        return _server != null ? _server.getPort() : _port;
+        if (_server != null) {
+            return _server.getPort();
+        }
+        try {
+            return Integer.parseInt(_settingsManager.getValue("server.port", String.valueOf(SpiralServer.DEFAULT_PORT)));
+        } catch (Exception e) {
+            return _port;
+        }
     }
 
     public int getActivePlayers() {

@@ -1,0 +1,110 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Build & Deploy",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/build_and_deploy.bat",
+      "windows": {
+        "command": "${workspaceFolder}\\scripts\\build_and_deploy.bat"
+      },
+      "linux": {
+        "command": "${workspaceFolder}/scripts/build_and_deploy.sh"
+      },
+      "osx": {
+        "command": "${workspaceFolder}/scripts/build_and_deploy.sh"
+      },
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Build, Deploy & Run",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/build_and_deploy.bat",
+      "args": ["-Run"],
+      "windows": {
+        "command": "${workspaceFolder}\\scripts\\build_and_deploy.bat"
+      },
+      "linux": {
+        "command": "${workspaceFolder}/scripts/build_and_deploy.sh"
+      },
+      "osx": {
+        "command": "${workspaceFolder}/scripts/build_and_deploy.sh"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Deploy Only (Skip Build)",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/build_and_deploy.bat",
+      "args": ["-SkipBuild"],
+      "windows": {
+        "command": "${workspaceFolder}\\scripts\\build_and_deploy.bat"
+      },
+      "linux": {
+        "command": "${workspaceFolder}/scripts/build_and_deploy.sh"
+      },
+      "osx": {
+        "command": "${workspaceFolder}/scripts/build_and_deploy.sh"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Deploy Dry Run",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/build_and_deploy.bat",
+      "args": ["-DryRun"],
+      "windows": {
+        "command": "${workspaceFolder}\\scripts\\build_and_deploy.bat"
+      },
+      "linux": {
+        "command": "${workspaceFolder}/scripts/build_and_deploy.sh"
+      },
+      "osx": {
+        "command": "${workspaceFolder}/scripts/build_and_deploy.sh"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Check Updates (KL_Update)",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/KL_Update.bat",
+      "windows": {
+        "command": "${workspaceFolder}\\scripts\\KL_Update.bat"
+      },
+      "linux": {
+        "command": "${workspaceFolder}/scripts/KL_Update.sh"
+      },
+      "osx": {
+        "command": "${workspaceFolder}/scripts/KL_Update.sh"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Maven: Test",
+      "type": "shell",
+      "command": "./mvnw",
+      "args": ["test"],
+      "windows": {
+        "command": ".\\mvnw.cmd"
+      },
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "Maven: Package (Prod)",
+      "type": "shell",
+      "command": "./mvnw",
+      "args": ["-Denv=prod", "-DskipTests", "clean", "package"],
+      "windows": {
+        "command": ".\\mvnw.cmd"
+      },
+      "group": "build",
+      "problemMatcher": []
+    }
+  ]
+}
+

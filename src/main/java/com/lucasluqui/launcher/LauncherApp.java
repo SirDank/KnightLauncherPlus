@@ -122,6 +122,11 @@ public class LauncherApp
     checkDirectories();
 
     initManagers();
+    Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+      if (_serverHostManager != null) {
+        _serverHostManager.stopServer();
+      }
+    }, "ServerShutdownHook"));
 
     checkStartLocation();
     checkShortcut();
@@ -1047,6 +1052,9 @@ public class LauncherApp
 
   public void exit ()
   {
+    if (_serverHostManager != null) {
+      _serverHostManager.stopServer();
+    }
     _discordPresenceClient.stop();
     try {
       getUI(LauncherUI.class).guiFrame.dispose();
