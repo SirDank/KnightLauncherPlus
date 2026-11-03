@@ -904,9 +904,23 @@ public class SettingsUI extends BaseUI
     advancedPanel.add(portTextField);
     portTextField.setText(String.valueOf(Settings.gamePort));
 
+    JLabel contentURLLabel = new JLabel(_localeManager.getValue("m.content_url"));
+    contentURLLabel.setBounds(Scale.rect(360, 269, 255, 50));
+    contentURLLabel.setHorizontalAlignment(SwingConstants.LEFT);
+    contentURLLabel.setFont(Fonts.getFont("default", 11.0f, Font.ITALIC));
+    advancedPanel.add(contentURLLabel);
+
+    contentURLTextField = new JTextField();
+    contentURLTextField.setBounds(Scale.rect(360, 304, 255, 25));
+    contentURLTextField.setFont(Fonts.getFont("code", 12.0f, Font.PLAIN));
+    contentURLTextField.putClientProperty(FlatClientProperties.STYLE,
+      "arc: 999; borderWidth: 0");
+    advancedPanel.add(contentURLTextField);
+    contentURLTextField.setText(Settings.gameContentURL);
+
     JLabel publicKeyLabel = new JLabel(_localeManager.getValue("m.public_key"));
     publicKeyLabel.setHorizontalAlignment(SwingConstants.LEFT);
-    publicKeyLabel.setBounds(Scale.rect(25, 328, 450, 50));
+    publicKeyLabel.setBounds(Scale.rect(25, 328, 330, 50));
     publicKeyLabel.setFont(Fonts.getFont("default", 11.0f, Font.ITALIC));
     advancedPanel.add(publicKeyLabel);
 
@@ -971,6 +985,20 @@ public class SettingsUI extends BaseUI
     portTextField.setCaretPosition(0);
     publicKeyTextField.setCaretPosition(0);
     getdownURLTextField.setCaretPosition(0);
+    contentURLTextField.setCaretPosition(0);
+
+    java.awt.event.FocusAdapter connectionSaver = new java.awt.event.FocusAdapter() {
+      @Override
+      public void focusLost (java.awt.event.FocusEvent e) { eventHandler.saveConnectionSettings(); }
+    };
+    for (JTextField field : new JTextField[]{serverAddressTextField, portTextField, publicKeyTextField, getdownURLTextField, contentURLTextField}) {
+      field.addFocusListener(connectionSaver);
+    }
+    removeServerButton = new JButton(_localeManager.getValue("m.remove_server"));
+    removeServerButton.setBounds(Scale.rect(435, 363, 180, 30));
+    removeServerButton.setVisible(false);
+    removeServerButton.addActionListener(e -> eventHandler.removeSelectedServer());
+    advancedPanel.add(removeServerButton);
 
     return advancedPanel;
   }
@@ -1117,7 +1145,7 @@ public class SettingsUI extends BaseUI
   /**
    * The translated name to show in the dropdown for the given stored platform value.
    */
-  private String getPlatformLabel (String platform)
+  public String getPlatformLabel (String platform)
   {
     return _localeManager.getValue(Settings.PLATFORM_STEAM.equals(platform) ? "o.steam" : "o.standalone");
   }
@@ -1152,6 +1180,8 @@ public class SettingsUI extends BaseUI
   public JTextField portTextField = new JTextField();
   public JTextField publicKeyTextField = new JTextField();
   public JTextField getdownURLTextField = new JTextField();
+  public JTextField contentURLTextField = new JTextField();
+  public JButton removeServerButton = new JButton();
   public JButton resetConnectionSettingsButton = new JButton();
   public JTextField betaCodeTextField;
   public JLabel labelFlamingoStatus = new JLabel();

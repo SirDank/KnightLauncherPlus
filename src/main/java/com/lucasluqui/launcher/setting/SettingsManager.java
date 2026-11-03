@@ -10,11 +10,11 @@ import com.lucasluqui.launcher.LocaleManager;
 import com.lucasluqui.launcher.flamingo.FlamingoManager;
 import com.lucasluqui.launcher.flamingo.data.Server;
 import com.lucasluqui.launcher.setting.ui.SettingsUI;
+import com.lucasluqui.launcher.setting.ui.handler.SettingsEventHandler;
 import com.lucasluqui.util.*;
 
 import javax.swing.*;
 import java.io.*;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.*;
@@ -52,7 +52,6 @@ public class SettingsManager
       log.error(e);
     } finally {
       loadSettings();
-      initFinished();
     }
   }
 
@@ -115,17 +114,19 @@ public class SettingsManager
     Settings.gamePublicKey = getValue("game.publicKey");
     Settings.gameGetdownURL = getValue("game.getdownURL");
     Settings.gameGetdownFullURL = getValue("game.getdownFullURL");
+    Settings.gameContentURL = getValue("game.contentURL", Settings.gameContentURL);
     Settings.gameAdditionalArgs = getValue("game.additionalArgs.v2", "");
 
     log.info("Loaded required settings from properties file");
   }
 
-  private void initFinished ()
+  public String getGamePlatform (Server server)
   {
-    if (SystemUtil.isWindows() && !SteamUtil.isRunningInSteamapps()) {
-      Settings.gamePlatform = Settings.PLATFORM_STANDALONE;
-      setValue("game.platform", Settings.PLATFORM_STANDALONE);
-    }
+    // Outside of a Steam install the Steam platform can't work, whatever was stored.
+    if (SystemUtil.isWindows() && !SteamUtil.isRunningInSteamapps()) return Settings.PLATFORM_STANDALONE;
+    String platform = getValue("game.platform", Settings.PLATFORM_STANDALONE, server);
+    return platform.startsWith(Settings.PLATFORM_STEAM)
+      ? Settings.PLATFORM_STEAM : Settings.PLATFORM_STANDALONE;
   }
 
   public String getValue (String key)
@@ -161,8 +162,8 @@ public class SettingsManager
   public void setValue (String key, String value)
   {
     _prop.setProperty(key, value);
-    try {
-      _prop.store(Files.newOutputStream(Paths.get(PROP_PATH)), null);
+    try (OutputStream output = Files.newOutputStream(Paths.get(PROP_PATH))) {
+      _prop.store(output, null);
     } catch (IOException e) {
       log.error(e);
     }
@@ -176,8 +177,8 @@ public class SettingsManager
     } else {
       _prop.setProperty(key, value);
     }
-    try {
-      _prop.store(Files.newOutputStream(Paths.get(PROP_PATH)), null);
+    try (OutputStream output = Files.newOutputStream(Paths.get(PROP_PATH))) {
+      _prop.store(output, null);
     } catch (IOException e) {
       log.error(e);
     }
@@ -357,56 +358,61 @@ public class SettingsManager
     return String.join(System.lineSeparator(), args);
   }
 
-  // TODO: Fix this. jar tool isn't bundled anymore.
-  private void applyConnectionSettings ()
+  /**
+   * Bakes the selected server's connection settings into the stock client's config.jar. Blank
+   * fields fall back to the Official values, so a previous server's settings never linger.
+   *
+   * @return whether the settings were written
+   */
+  public boolean applyConnectionSettings ()
   {
-    String deployPropStr = null;
-    try {
-      deployPropStr = ZipUtil.readFileInsideZip(
-        LauncherGlobals.USER_DIR + File.separator + "code" + File.separator + "config.jar",
-        "deployment.properties");
-
-    } catch (IOException e) {
-      log.error(e);
-    }
-
-    if (deployPropStr == null) {
-      log.error("Failed to read deployment.properties, cannot apply connection settings");
-      return;
-    }
+    Server server = _flamingoManager.getSelectedServer();
+    String port = Settings.gamePort > 0 ? String.valueOf(Settings.gamePort) : SettingsEventHandler.DEFAULT_PORT;
 
     Properties properties = new Properties();
-    try {
-      InputStream stream = new ByteArrayInputStream(deployPropStr.getBytes(StandardCharsets.UTF_8));
-      properties.load(stream);
-    } catch (IOException e) {
-      log.error(e);
-    }
-
-    properties.setProperty("server_host", Settings.gameEndpoint);
-    properties.setProperty("server_ports", String.valueOf(Settings.gamePort));
-    properties.setProperty("datagram_ports", String.valueOf(Settings.gamePort));
-    properties.setProperty("key.public", Settings.gamePublicKey);
-    properties.setProperty("client_root_url", Settings.gameGetdownURL);
+    properties.setProperty("server_host", orDefault(Settings.gameEndpoint, SettingsEventHandler.DEFAULT_SERVER_ADDRESS));
+    properties.setProperty("server_ports", port);
+    properties.setProperty("datagram_ports", port);
+    properties.setProperty("key.public", orDefault(Settings.gamePublicKey, SettingsEventHandler.DEFAULT_PUBLIC_KEY));
+    properties.setProperty("client_root_url", orDefault(Settings.gameGetdownURL, SettingsEventHandler.toClientRootUrl(SettingsEventHandler.DEFAULT_GETDOWN_URL)));
+    properties.setProperty("content_url", orDefault(Settings.gameContentURL, SettingsEventHandler.DEFAULT_CONTENT_URL));
 
     try {
-      properties.store(
-        Files.newOutputStream(
-          new File(LauncherGlobals.USER_DIR + "/deployment.properties").toPath()), null);
-    } catch (IOException e) {
+      ZipUtil.updatePropertiesInsideZip(
+        Paths.get(LauncherGlobals.USER_DIR, "code", "config.jar"),
+        "deployment.properties", properties);
+      return true;
+    } catch (IOException | IllegalArgumentException e) {
+      log.error("Failed to apply connection settings to code/config.jar",
+        "server", server == null ? "null" : server.name);
       log.error(e);
+      return false;
     }
+  }
 
-    String[] outputCapture = null;
-    if (SystemUtil.isWindows()) {
-      outputCapture = ProcessUtil.runAndCapture(new String[]{"cmd.exe", "/C", JavaUtil.getGameJVMDirPath() + "/bin/jar.exe", "uf", "code/config.jar", "deployment.properties"});
-    } else {
-      outputCapture = ProcessUtil.runAndCapture(new String[]{"/bin/bash", "-c", JavaUtil.getGameJVMDirPath() + "/bin/jar", "uf", "code/config.jar", "deployment.properties"});
-    }
-    log.debug("Connection settings capture, stdout=", outputCapture[0], "stderr=", outputCapture[1]);
+  /**
+   * Stores a server's connection settings under its own keys. The root URL the game expects
+   * is derived from the full getdown URL.
+   */
+  public void setConnectionSettings (Server server, String endpoint, String port, String publicKey,
+                                     String getdownFullURL, String contentURL)
+  {
+    setValue("game.endpoint", endpoint, server);
+    setValue("game.port", port, server);
+    setValue("game.publicKey", publicKey, server);
+    setValue("game.getdownFullURL", getdownFullURL, server);
+    setValue("game.getdownURL", SettingsEventHandler.toClientRootUrl(getdownFullURL), server);
+    setValue("game.contentURL", contentURL, server);
+  }
 
-    FileUtil.deleteFile(LauncherGlobals.USER_DIR + "/deployment.properties");
-    properties.clear();
+  private static String orDefault (String value, String defaultValue)
+  {
+    return isBlank(value) ? defaultValue : value;
+  }
+
+  private static boolean isBlank (String value)
+  {
+    return value == null || value.trim().isEmpty();
   }
 
   public int getMaxAllowedMemoryAlloc ()
@@ -429,6 +435,6 @@ public class SettingsManager
   private HashMap<String, Object> _migrationMap = new HashMap<>();
   private boolean _migrating = false;
 
-  private final String PROP_VER = "32";
+  private final String PROP_VER = "33";
   private final String PROP_PATH = LauncherGlobals.USER_DIR + File.separator + "KnightLauncher.properties";
 }

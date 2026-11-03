@@ -13,6 +13,7 @@ import com.lucasluqui.launcher.mod.ModManager;
 import com.lucasluqui.launcher.setting.Settings;
 import com.lucasluqui.launcher.setting.SettingsManager;
 import com.lucasluqui.launcher.setting.ui.SettingsUI;
+import com.lucasluqui.launcher.ui.LauncherUI;
 import com.lucasluqui.util.*;
 import com.sun.management.OperatingSystemMXBean;
 
@@ -47,7 +48,7 @@ public class SettingsEventHandler
   public void platformChangeEvent (ItemEvent event)
   {
     Settings.gamePlatform = this.ui.getSelectedPlatform();
-    _settingsManager.setValue("game.platform", Settings.gamePlatform);
+    if (!loadingServerSettings) _settingsManager.setValue("game.platform", Settings.gamePlatform, _flamingoManager.getSelectedServer());
   }
 
   public void rebuildsChangeEvent (ActionEvent event)
@@ -230,7 +231,7 @@ public class SettingsEventHandler
     // legacy Java VMs are offered to patch.
     final boolean legacy = JavaUtil.isLegacy();
 
-    if (!_flamingoManager.getSelectedServer().isOfficial()) {
+    if (!_flamingoManager.getSelectedServer().isOfficial() && !_flamingoManager.getSelectedServer().useStockClient) {
       javaVMPatchDir += File.separator + "thirdparty" + File.separator + _flamingoManager.getSelectedServer().getSanitizedName();
     }
 
@@ -239,19 +240,47 @@ public class SettingsEventHandler
     System.exit(1);
   }
 
+  public void removeSelectedServer ()
+  {
+    _ctx.getApp().getUI(LauncherUI.class).eventHandler.removeSelectedServer();
+  }
+
   public void saveConnectionSettings ()
   {
-    Settings.gameEndpoint = this.ui.serverAddressTextField.getText();
-    Settings.gamePort = Integer.parseInt(this.ui.portTextField.getText());
-    Settings.gamePublicKey = this.ui.publicKeyTextField.getText();
-    Settings.gameGetdownFullURL = this.ui.getdownURLTextField.getText();
-    Settings.gameGetdownURL = "http://" + this.ui.getdownURLTextField.getText().split("://")[1].split("/")[0];
+    if (loadingServerSettings) return;
+    Server selectedServer = _flamingoManager.getSelectedServer();
 
-    _settingsManager.setValue("game.endpoint", Settings.gameEndpoint);
-    _settingsManager.setValue("game.port", String.valueOf(Settings.gamePort));
-    _settingsManager.setValue("game.publicKey", Settings.gamePublicKey);
-    _settingsManager.setValue("game.getdownURL", Settings.gameGetdownURL);
-    _settingsManager.setValue("game.getdownFullURL", Settings.gameGetdownFullURL);
+    Settings.gameEndpoint = this.ui.serverAddressTextField.getText().trim();
+    Settings.gamePort = parsePort(this.ui.portTextField.getText());
+    Settings.gamePublicKey = this.ui.publicKeyTextField.getText().trim();
+    Settings.gameGetdownFullURL = this.ui.getdownURLTextField.getText().trim();
+    Settings.gameGetdownURL = toClientRootUrl(Settings.gameGetdownFullURL);
+    Settings.gameContentURL = this.ui.contentURLTextField.getText().trim();
+
+    _settingsManager.setConnectionSettings(selectedServer, Settings.gameEndpoint, String.valueOf(Settings.gamePort),
+      Settings.gamePublicKey, Settings.gameGetdownFullURL, Settings.gameContentURL);
+  }
+
+  private int parsePort (String port)
+  {
+    try {
+      return Integer.parseInt(port.trim());
+    } catch (NumberFormatException e) {
+      return 0;
+    }
+  }
+
+  // The game expects the root URL only ("http://host"), while the settings field
+  // holds the full getdown URL the user pastes in. The scheme is kept when it is http(s).
+  public static String toClientRootUrl (String getdownFullURL)
+  {
+    String url = getdownFullURL.trim();
+    if (url.isEmpty()) return "";
+    int schemeEnd = url.indexOf("://");
+    String scheme = schemeEnd > 0 ? url.substring(0, schemeEnd).toLowerCase(java.util.Locale.ROOT) : "http";
+    if (!scheme.equals("http") && !scheme.equals("https")) scheme = "http";
+    String hostAndPath = schemeEnd > 0 ? url.substring(schemeEnd + 3) : url;
+    return scheme + "://" + hostAndPath.split("/")[0];
   }
 
   public void resetConnectionSettingsButtonEvent (ActionEvent action)
@@ -260,6 +289,7 @@ public class SettingsEventHandler
     this.ui.portTextField.setText(DEFAULT_PORT);
     this.ui.publicKeyTextField.setText(DEFAULT_PUBLIC_KEY);
     this.ui.getdownURLTextField.setText(DEFAULT_GETDOWN_URL);
+    this.ui.contentURLTextField.setText(DEFAULT_CONTENT_URL);
 
     saveConnectionSettings();
   }
@@ -499,7 +529,7 @@ public class SettingsEventHandler
     Server selectedServer = _flamingoManager.getSelectedServer();
 
     if (selectedServer != null) {
-      if (selectedServer.name.equalsIgnoreCase("Official")) {
+      if (selectedServer.isOfficial() || selectedServer.useStockClient) {
         this.ui.switchDiscordIntegration.setEnabled(SystemUtil.isWindows() && SystemUtil.is64Bit());
         this.ui.labelPlatform.setVisible(true);
         this.ui.choicePlatform.setEnabled(true);
@@ -512,6 +542,7 @@ public class SettingsEventHandler
         this.ui.portTextField.setEnabled(true);
         this.ui.publicKeyTextField.setEnabled(true);
         this.ui.getdownURLTextField.setEnabled(true);
+        this.ui.contentURLTextField.setEnabled(true);
         this.ui.resetConnectionSettingsButton.setEnabled(true);
       } else {
         this.ui.switchDiscordIntegration.setEnabled(false);
@@ -526,9 +557,11 @@ public class SettingsEventHandler
         this.ui.portTextField.setEnabled(false);
         this.ui.publicKeyTextField.setEnabled(false);
         this.ui.getdownURLTextField.setEnabled(false);
+        this.ui.contentURLTextField.setEnabled(false);
         this.ui.resetConnectionSettingsButton.setEnabled(false);
       }
 
+      this.ui.removeServerButton.setVisible(_flamingoManager.isCustomServer(selectedServer));
       updateGameJavaVMData();
       updateServerSettings(selectedServer);
     }
@@ -584,14 +617,39 @@ public class SettingsEventHandler
     this.ui.updateActiveBetaCodes();
   }
 
+  public boolean loadingServerSettings;
+
   public void updateServerSettings (Server server)
   {
+    loadingServerSettings = true;
+    Settings.gamePlatform = _settingsManager.getGamePlatform(server);
+    this.ui.choicePlatform.setSelectedItem(this.ui.getPlatformLabel(Settings.gamePlatform));
     this.ui.memorySlider.setValue(Integer.parseInt(_settingsManager.getValue("game.memory", server)));
     this.ui.switchUseCustomGC.setSelected(Boolean.parseBoolean(_settingsManager.getValue("game.useCustomGC", server)));
     this.ui.choiceGC.setSelectedItem(_settingsManager.getValue("game.garbageCollector", server));
     this.ui.switchExplicitGC.setSelected(Boolean.parseBoolean(_settingsManager.getValue("game.disableExplicitGC", server)));
     this.ui.argumentsPane.setText(_settingsManager.getValue("game.additionalArgs.v2", server));
 
+    boolean official = server.isOfficial();
+    this.ui.serverAddressTextField.setText(
+      _settingsManager.getValue("game.endpoint", official ? DEFAULT_SERVER_ADDRESS : "", server));
+    this.ui.portTextField.setText(
+      _settingsManager.getValue("game.port", official ? DEFAULT_PORT : "", server));
+    this.ui.publicKeyTextField.setText(
+      _settingsManager.getValue("game.publicKey", official ? DEFAULT_PUBLIC_KEY : "", server));
+    this.ui.getdownURLTextField.setText(
+      _settingsManager.getValue("game.getdownFullURL", official ? DEFAULT_GETDOWN_URL : "", server));
+    this.ui.contentURLTextField.setText(
+      _settingsManager.getValue("game.contentURL", DEFAULT_CONTENT_URL, server));
+
+    Settings.gameEndpoint = this.ui.serverAddressTextField.getText().trim();
+    Settings.gamePort = parsePort(this.ui.portTextField.getText());
+    Settings.gamePublicKey = this.ui.publicKeyTextField.getText().trim();
+    Settings.gameGetdownFullURL = this.ui.getdownURLTextField.getText().trim();
+    Settings.gameGetdownURL = toClientRootUrl(Settings.gameGetdownFullURL);
+    Settings.gameContentURL = this.ui.contentURLTextField.getText().trim();
+
+    loadingServerSettings = false;
     customGCChangeEvent(null);
     choiceGCChangeEvent(null);
     disableExplicitGCChangeEvent(null);
@@ -615,6 +673,15 @@ public class SettingsEventHandler
     _settingsManager.createKeyIfNotExists("game.garbageCollector_" + serverName, "G1");
     _settingsManager.createKeyIfNotExists("game.disableExplicitGC_" + serverName, "false");
     _settingsManager.createKeyIfNotExists("game.additionalArgs.v2_" + serverName, "");
+
+    // Connection settings are per server so every server keeps its own endpoint.
+    // They are left empty by default: an empty value means "do not touch the client".
+    _settingsManager.createKeyIfNotExists("game.endpoint_" + serverName, "");
+    _settingsManager.createKeyIfNotExists("game.port_" + serverName, "");
+    _settingsManager.createKeyIfNotExists("game.publicKey_" + serverName, "");
+    _settingsManager.createKeyIfNotExists("game.getdownURL_" + serverName, "");
+    _settingsManager.createKeyIfNotExists("game.getdownFullURL_" + serverName, "");
+    _settingsManager.createKeyIfNotExists("game.contentURL_" + serverName, DEFAULT_CONTENT_URL);
   }
 
   @Inject private SettingsUI ui;
@@ -639,8 +706,9 @@ public class SettingsEventHandler
   private final boolean RECOMMENDED_DISABLE_EXPLICIT_GC = true;
 
   // Default connection settings
-  private final String DEFAULT_SERVER_ADDRESS = "game.spiralknights.com";
-  private final String DEFAULT_PORT = "47624";
-  private final String DEFAULT_PUBLIC_KEY = "a5ed0dc3892b9472cfb668e236064e989e95945dad18f3d7e7d8e474d6e03de38bc044c3429b9ca649d0881d601c0eb8ffebc3756f0503f73a8ca1760943ea0e8921ad6f8102026586db3133844bbadbcfcfc666d23982d7684511fbf6cd8bb1d02a14270d0854098d16fe88f99c05825b0fe1b6fd497709106f2c418796aaf7aab7c92f26fcd9fbb3c43df48075fed8dd931273a7b0a333c8de5967797874c1944aed65b47f0792b273a529ac22a2dce08dad04eeebeeff67c7bc99b97682bff488038b28e24f4b5eea77ed966caede52f2c1ecf2b403110a9765daa81ddf718129a040823bead3a0bdca70ef6d08f483757a6d3b6e01fbbcb32006b7872bcd#10001";
-  private final String DEFAULT_GETDOWN_URL = "http://gamemedia2.spiralknights.com/spiral/client/";
+  public static final String DEFAULT_SERVER_ADDRESS = "game.spiralknights.com";
+  public static final String DEFAULT_PORT = "47624";
+  public static final String DEFAULT_PUBLIC_KEY = "a5ed0dc3892b9472cfb668e236064e989e95945dad18f3d7e7d8e474d6e03de38bc044c3429b9ca649d0881d601c0eb8ffebc3756f0503f73a8ca1760943ea0e8921ad6f8102026586db3133844bbadbcfcfc666d23982d7684511fbf6cd8bb1d02a14270d0854098d16fe88f99c05825b0fe1b6fd497709106f2c418796aaf7aab7c92f26fcd9fbb3c43df48075fed8dd931273a7b0a333c8de5967797874c1944aed65b47f0792b273a529ac22a2dce08dad04eeebeeff67c7bc99b97682bff488038b28e24f4b5eea77ed966caede52f2c1ecf2b403110a9765daa81ddf718129a040823bead3a0bdca70ef6d08f483757a6d3b6e01fbbcb32006b7872bcd#10001";
+  public static final String DEFAULT_GETDOWN_URL = "http://gamemedia2.spiralknights.com/spiral/client/";
+  public static final String DEFAULT_CONTENT_URL = "http://content.spiralknights.com/";
 }
