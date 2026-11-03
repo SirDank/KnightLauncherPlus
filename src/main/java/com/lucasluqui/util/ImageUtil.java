@@ -1,10 +1,7 @@
 package com.lucasluqui.util;
 
-import org.apache.commons.io.IOUtils;
-
 import javax.imageio.ImageIO;
 import javax.swing.*;
-import javax.xml.bind.DatatypeConverter;
 import java.awt.*;
 import java.awt.geom.RoundRectangle2D;
 import java.awt.image.BufferedImage;
@@ -25,10 +22,15 @@ public class ImageUtil
     Image image = null;
 
     try {
-      image = ImageIO.read(url);
+      // Local files (like cached images) are read straight away, anything else is fetched with a timeout.
+      image = HttpUtil.isHttp(url)
+        ? ImageIO.read(new ByteArrayInputStream(HttpUtil.getBytes(HttpUtil.toURI(url))))
+        : ImageIO.read(url);
+      if (image == null) throw new IOException("Not a readable image: " + url);
       image = image.getScaledInstance(width, height, Image.SCALE_SMOOTH);
     } catch (IOException e) {
       log.error(e);
+      image = null;
     }
 
     return image;
@@ -46,26 +48,12 @@ public class ImageUtil
 
   public static byte[] getAnimatedImageFromURL (String url)
   {
-    InputStream is = null;
-    byte[] imageBytes = null;
     try {
-      URL _url = new URL(url);
-      is = _url.openStream();
-      imageBytes = IOUtils.toByteArray(is);
+      return HttpUtil.getBytes(HttpUtil.toURI(new URL(url)));
     } catch (IOException e) {
       log.error(e);
-      // Perform any other exception handling that's appropriate.
-    } finally {
-      if (is != null) {
-        try {
-          is.close();
-        } catch (IOException e) {
-          log.error(e);
-        }
-      }
+      return null;
     }
-
-    return imageBytes;
   }
 
   /*
@@ -129,7 +117,8 @@ public class ImageUtil
     if (data == null) return null;
 
     String base64Image = data.contains(",") ? data.split(",")[1] : data;
-    byte[] imageBytes = DatatypeConverter.parseBase64Binary(base64Image);
+    // The MIME decoder skips over line breaks and other stray characters, like DatatypeConverter used to.
+    byte[] imageBytes = Base64.getMimeDecoder().decode(base64Image);
     BufferedImage img = null;
     try {
       img = ImageIO.read(new ByteArrayInputStream(imageBytes));
@@ -155,6 +144,9 @@ public class ImageUtil
   {
     BufferedImage resizedImage = new BufferedImage(targetWidth, targetHeight, BufferedImage.TYPE_INT_RGB);
     Graphics2D graphics2D = resizedImage.createGraphics();
+    // Without these it picks the nearest pixel, which looks blocky when scaling up and grainy when scaling down.
+    graphics2D.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+    graphics2D.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
     graphics2D.drawImage(originalImage, 0, 0, targetWidth, targetHeight, null);
     graphics2D.dispose();
     return resizedImage;

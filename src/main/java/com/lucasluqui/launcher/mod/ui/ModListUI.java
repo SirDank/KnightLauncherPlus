@@ -1,11 +1,5 @@
 package com.lucasluqui.launcher.mod.ui;
 
-import com.lucasluqui.swing.Scale;
-import com.formdev.flatlaf.FlatClientProperties;
-import com.formdev.flatlaf.icons.FlatSearchIcon;
-import com.google.inject.Inject;
-import com.jhlabs.image.GaussianFilter;
-import com.jhlabs.image.GrayscaleFilter;
 import com.lucasluqui.dialog.Dialog;
 import com.lucasluqui.launcher.ui.BaseUI;
 import com.lucasluqui.launcher.mod.ui.handler.ModListEventHandler;
@@ -20,10 +14,19 @@ import com.lucasluqui.launcher.mod.data.ZipMod;
 import com.lucasluqui.swing.SlimProgressBarUI;
 import com.lucasluqui.swing.SmoothProgressBar;
 import com.lucasluqui.swing.SmoothScrollPane;
-import com.lucasluqui.util.ColorUtil;
+import com.lucasluqui.swing.FontIcon;
+import com.lucasluqui.swing.HiDpi;
+import com.lucasluqui.swing.FractionalMetrics;
+import com.lucasluqui.swing.Scale;
 import com.lucasluqui.util.ImageUtil;
+import com.lucasluqui.util.ThreadingUtil;
+
 import jiconfont.icons.font_awesome.FontAwesome;
-import jiconfont.swing.IconFontSwing;
+import com.formdev.flatlaf.FlatClientProperties;
+import com.formdev.flatlaf.icons.FlatSearchIcon;
+import com.google.inject.Inject;
+import com.jhlabs.image.GaussianFilter;
+import com.jhlabs.image.GrayscaleFilter;
 
 import javax.swing.*;
 import java.awt.*;
@@ -93,7 +96,7 @@ public class ModListUI extends BaseUI
     guiFrame.getContentPane().add(labelModCountText);
 
     globalWarningButton = new JButton(_localeManager.getValue("m.warning"));
-    globalWarningButton.setIcon(IconFontSwing.buildIcon(FontAwesome.EXCLAMATION_TRIANGLE, Scale.px(13), Color.BLACK));
+    globalWarningButton.setIcon(FontIcon.of(FontAwesome.EXCLAMATION_TRIANGLE, Scale.px(13), Color.BLACK));
     globalWarningButton.setBounds(Scale.rect(650, 87, 110, 23));
     globalWarningButton.setToolTipText(_localeManager.getValue("m.warning"));
     globalWarningButton.setFocusPainted(false);
@@ -114,7 +117,8 @@ public class ModListUI extends BaseUI
       protected void paintComponent (Graphics g)
       {
         super.paintComponent(g);
-        g.drawImage(modStoreButtonImage, 0, 0, null);
+        // The image is made at the display's resolution, so it's fit into the button's size.
+        HiDpi.drawBuffer(g, modStoreButtonImage, 0, 0, Scale.px(165), Scale.px(55));
       }
     };
 
@@ -124,7 +128,7 @@ public class ModListUI extends BaseUI
     modStoreButtonPane.setToolTipText(_localeManager.getValue("m.coming_soon"));
 
     JLabel modStoreButtonLabel = new JLabel();
-    modStoreButtonLabel.setIcon(IconFontSwing.buildIcon(FontAwesome.SHOPPING_CART, Scale.px(16), Color.WHITE));
+    modStoreButtonLabel.setIcon(FontIcon.of(FontAwesome.SHOPPING_CART, Scale.px(16), Color.WHITE));
     modStoreButtonLabel.setBounds(Scale.rect(0, 0, 165, 55));
     modStoreButtonLabel.setText(_localeManager.getValue("b.mod_store"));
     modStoreButtonLabel.setFont(Fonts.getFont("default", 16.0f, Font.BOLD));
@@ -225,7 +229,7 @@ public class ModListUI extends BaseUI
     guiFrame.getContentPane().add(separator);
 
     addModButton = new JButton(_localeManager.getValue("b.add"));
-    addModButton.setIcon(IconFontSwing.buildIcon(FontAwesome.PLUS, Scale.px(13), Color.WHITE));
+    addModButton.setIcon(FontIcon.of(FontAwesome.PLUS, Scale.px(13), Color.WHITE));
     addModButton.setBounds(Scale.rect(25, 87, 80, 23));
     addModButton.setFocusPainted(false);
     addModButton.setFocusable(false);
@@ -238,7 +242,7 @@ public class ModListUI extends BaseUI
     addModButton.addActionListener(this.eventHandler::addModEvent);
 
     refreshButton = new JButton(_localeManager.getValue("b.refresh"));
-    refreshButton.setIcon(IconFontSwing.buildIcon(FontAwesome.REFRESH, Scale.px(13), Color.WHITE));
+    refreshButton.setIcon(FontIcon.of(FontAwesome.REFRESH, Scale.px(13), Color.WHITE));
     refreshButton.setBounds(Scale.rect(110, 87, 105, 23));
     refreshButton.setFocusPainted(false);
     refreshButton.setFocusable(false);
@@ -324,6 +328,7 @@ public class ModListUI extends BaseUI
         Graphics2D g2d = (Graphics2D) g.create();
         g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         g2d.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+        FractionalMetrics.apply(g2d);
 
         // The screen can be taller than the window showing it, so stick to the part that's actually visible.
         Rectangle area = getVisibleRect();
@@ -337,7 +342,7 @@ public class ModListUI extends BaseUI
         g2d.setStroke(new BasicStroke(Scale.px(2f), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND, 10f, new float[]{ Scale.px(10f), Scale.px(8f) }, 0f));
         g2d.drawRoundRect(area.x + Scale.px(20), area.y + Scale.px(20), area.width - Scale.px(40), area.height - Scale.px(40), Scale.px(30), Scale.px(30));
 
-        Icon icon = IconFontSwing.buildIcon(FontAwesome.PLUS_CIRCLE, Scale.px(48), Color.WHITE);
+        Icon icon = FontIcon.of(FontAwesome.PLUS_CIRCLE, Scale.px(48), Color.WHITE);
         String text = _localeManager.getValue("m.drop_mods");
         g2d.setFont(Fonts.getFont("default", 16.0f, Font.BOLD));
         FontMetrics metrics = g2d.getFontMetrics();
@@ -402,7 +407,7 @@ public class ModListUI extends BaseUI
           event.dropComplete(true);
 
           // Off the drop itself, so the app the files were dragged from isn't kept waiting on us or a dialog.
-          new Thread(() -> eventHandler.addModFiles(files)).start();
+          ThreadingUtil.start("ModDrop", () -> eventHandler.addModFiles(files));
         } catch (Exception e) {
           log.error("Failed to receive dropped files", e);
           event.dropComplete(false);
@@ -418,6 +423,12 @@ public class ModListUI extends BaseUI
 
   public void updateModList (String searchString)
   {
+    // Mod checks and refreshes call this from their own threads, rebuilding the list has to happen on the EDT.
+    if (!SwingUtilities.isEventDispatchThread()) {
+      SwingUtilities.invokeLater(() -> updateModList(searchString));
+      return;
+    }
+
     int count = 0;
 
     if (modListPane == null) {
@@ -429,7 +440,7 @@ public class ModListUI extends BaseUI
 
     BufferedImage defaultModImageBuffImg = ImageUtil.loadImageWithinJar("/rsrc/img/icon-default.png");
     defaultModImageBuffImg = ImageUtil.resizeImagePreserveTransparency(
-      defaultModImageBuffImg, Scale.px(128), Scale.px(128));
+      defaultModImageBuffImg, HiDpi.px(Scale.px(128)), HiDpi.px(Scale.px(128)));
 
     for (Mod mod : _modManager.getModList()) {
 
@@ -508,7 +519,8 @@ public class ModListUI extends BaseUI
     BufferedImage modImageBuffImg = null;
     if (mod.getImage() != null) {
       modImageBuffImg = ImageUtil.loadImageFromBase64(mod.getImage());
-      modImageBuffImg = ImageUtil.resizeImagePreserveTransparency(modImageBuffImg, Scale.px(128), Scale.px(128));
+      // Made at the display's resolution, the cards draw it into buffers that are too.
+      modImageBuffImg = ImageUtil.resizeImagePreserveTransparency(modImageBuffImg, HiDpi.px(Scale.px(128)), HiDpi.px(Scale.px(128)));
     }
 
     ModCard modCard = new ModCard(mod.getDisplayName(), badgeText, accent, badgeForeground, mod.getDescription(),
@@ -559,7 +571,7 @@ public class ModListUI extends BaseUI
 
   private JButton createCardActionButton (FontAwesome icon, Color foreground, Color background, String tooltip)
   {
-    JButton button = new JButton(IconFontSwing.buildIcon(icon, Scale.px(14), foreground));
+    JButton button = new JButton(FontIcon.of(icon, Scale.px(14), foreground));
     button.setFocusPainted(false);
     button.setFocusable(false);
     button.setBackground(background);
@@ -571,8 +583,12 @@ public class ModListUI extends BaseUI
 
   private void setupImages ()
   {
-    modStoreButtonImageFocused = ImageUtil.resizeImage(ImageUtil.loadImageWithinJar("/rsrc/img/mod-store-btn.png"), Scale.px(165), Scale.px(55));
-    modStoreButtonImageFocused = (BufferedImage) ImageUtil.addRoundedCorners(new GaussianFilter(Scale.px(5f)).filter(modStoreButtonImageFocused, null), Scale.px(25));
+    // Made at the display's resolution, with the blur and corners scaled to match.
+    double scale = HiDpi.scale();
+    modStoreButtonImageFocused = ImageUtil.resizeImage(ImageUtil.loadImageWithinJar("/rsrc/img/mod-store-btn.png"),
+      HiDpi.px(Scale.px(165), scale), HiDpi.px(Scale.px(55), scale));
+    modStoreButtonImageFocused = (BufferedImage) ImageUtil.addRoundedCorners(
+      new GaussianFilter((float) (Scale.px(5f) * scale)).filter(modStoreButtonImageFocused, null), HiDpi.px(Scale.px(25), scale));
     modStoreButtonImageUnfocused = new GrayscaleFilter().filter(modStoreButtonImageFocused, null);
     modStoreButtonImage = modStoreButtonImageUnfocused;
   }

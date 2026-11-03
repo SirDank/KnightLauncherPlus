@@ -1,5 +1,7 @@
 package com.lucasluqui.launcher.ui.handler;
 
+import com.lucasluqui.swing.FontIcon;
+import com.lucasluqui.swing.HiDpi;
 import com.lucasluqui.swing.Scale;
 import com.formdev.flatlaf.FlatClientProperties;
 import com.google.inject.Inject;
@@ -20,7 +22,6 @@ import com.lucasluqui.launcher.setting.ui.SettingsUI;
 import com.lucasluqui.util.*;
 import com.lucasluqui.swing.LoadingIcon;
 import jiconfont.icons.font_awesome.FontAwesome;
-import jiconfont.swing.IconFontSwing;
 
 import javax.swing.*;
 import java.awt.*;
@@ -40,7 +41,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.Set;
-import java.util.TimeZone;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -77,7 +77,7 @@ public class LauncherEventHandler
 
   public void launchGameEvent (boolean altMode)
   {
-    Thread launchThread = new Thread(() -> {
+    ThreadingUtil.start("GameLaunch", () -> {
 
       // block interactions with the launcher
       _ctx.getApp().toggleElementsBlock(true);
@@ -292,13 +292,12 @@ public class LauncherEventHandler
       ui.launchButton.setText(_localeManager.getValue("m.launching"));
       checkGameLaunch(existingProcesses);
     });
-    launchThread.start();
 
   }
 
   public void launchGameAltEvent ()
   {
-    Thread launchAltThread = new Thread(() -> {
+    ThreadingUtil.start("GameLaunchAlt", () -> {
 
       if (_flamingoManager.getSelectedServer().isOfficial()) {
         // official servers alt launch procedure
@@ -309,18 +308,16 @@ public class LauncherEventHandler
       }
 
     });
-    launchAltThread.start();
 
   }
 
   public void repairGameFilesEvent ()
   {
-    Thread repairThread = new Thread(() -> {
+    ThreadingUtil.start("GameRepair", () -> {
       _modManager.setMountRequired(true);
       _modManager.startStrictFileRebuild();
       _modManager.mount();
     });
-    repairThread.start();
   }
 
   public void gameSettingsEvent ()
@@ -579,6 +576,12 @@ public class LauncherEventHandler
 
   public void updateServerSwitcher (boolean locked)
   {
+    // Rebuilding the switcher calls updateUI(), which blows up if it races with the EDT.
+    if (!SwingUtilities.isEventDispatchThread()) {
+      SwingUtilities.invokeLater(() -> updateServerSwitcher(locked));
+      return;
+    }
+
     this.ui.serverSwitcherPane.removeAll();
 
     List<Server> serverList = _flamingoManager.getServerList();
@@ -586,13 +589,8 @@ public class LauncherEventHandler
       int count = 0;
       String borderColor = ColorUtil.colorToHexString(locked ? CustomColors.INTERFACE_SERVERSWITCHER_HOVER_BORDER_LOCKED : CustomColors.INTERFACE_SERVERSWITCHER_HOVER_BORDER);
 
-      BufferedImage officialServerBufferedImage = ImageUtil.loadImageWithinJar("/rsrc/img/server-official.png");
-      officialServerBufferedImage = ImageUtil.resizeImagePreserveTransparency(officialServerBufferedImage, Scale.px(32), Scale.px(32));
-      ImageIcon officialServerImageIcon = new ImageIcon(ImageUtil.addRoundedCorners(officialServerBufferedImage, Scale.px(15)));
-
-      BufferedImage defaultServerBufferedImage = ImageUtil.loadImageWithinJar("/rsrc/img/icon-default.png");
-      defaultServerBufferedImage = ImageUtil.resizeImagePreserveTransparency(defaultServerBufferedImage, Scale.px(32), Scale.px(32));
-      ImageIcon defaultServerImageIcon = new ImageIcon(ImageUtil.addRoundedCorners(defaultServerBufferedImage, Scale.px(15)));
+      ImageIcon officialServerImageIcon = createServerIcon(ImageUtil.loadImageWithinJar("/rsrc/img/server-official.png"));
+      ImageIcon defaultServerImageIcon = createServerIcon(ImageUtil.loadImageWithinJar("/rsrc/img/icon-default.png"));
 
       for (Server server : serverList) {
         JPanel serverIconPane = new JPanel();
@@ -610,8 +608,11 @@ public class LauncherEventHandler
           if (server.serverIcon.equalsIgnoreCase("null")) {
             serverIconImageIcon = defaultServerImageIcon;
           } else {
-            BufferedImage serverIconBufferedImage = _cacheManager.fetchImage(server.serverIcon, Scale.px(32), Scale.px(32));
-            serverIconImageIcon = new ImageIcon(ImageUtil.addRoundedCorners(serverIconBufferedImage, Scale.px(15)));
+            int size = HiDpi.px(Scale.px(32));
+            BufferedImage serverIconBufferedImage = _cacheManager.fetchImage(server.serverIcon, size, size);
+            serverIconImageIcon = serverIconBufferedImage != null
+              ? createServerIcon(serverIconBufferedImage)
+              : defaultServerImageIcon;
           }
           serverIcon.setIcon(server.serverIcon.equalsIgnoreCase("null") ? defaultServerImageIcon : serverIconImageIcon);
         }
@@ -675,7 +676,7 @@ public class LauncherEventHandler
       addServerIcon.setBounds(Scale.rect(4, 4, 42, 42));
       addServerIcon.setHorizontalAlignment(SwingConstants.CENTER);
       addServerIcon.setToolTipText(_localeManager.getValue("m.add_server"));
-      addServerIcon.setIcon(IconFontSwing.buildIcon(FontAwesome.PLUS, Scale.px(18), Color.WHITE));
+      addServerIcon.setIcon(FontIcon.of(FontAwesome.PLUS, Scale.px(18), Color.WHITE));
       addServerIcon.setVisible(true);
       addServerPane.add(addServerIcon);
       addServerIcon.addMouseListener(new MouseListener()
@@ -840,6 +841,18 @@ public class LauncherEventHandler
     });
   }
 
+  /**
+   * A server icon for the server switcher, rounded off and made at the display's resolution.
+   */
+  private static ImageIcon createServerIcon (BufferedImage image)
+  {
+    double scale = HiDpi.scale();
+    int size = Scale.px(32);
+    BufferedImage resized = ImageUtil.resizeImagePreserveTransparency(image, HiDpi.px(size, scale), HiDpi.px(size, scale));
+    Image rounded = ImageUtil.addRoundedCorners(resized, HiDpi.px(Scale.px(15), scale));
+    return HiDpi.icon(ImageUtil.toBufferedImage(rounded), size, size);
+  }
+
   private LauncherUI.BannerImage loadBannerImage (Event event)
   {
     LauncherUI.BannerImage image = _bannerImageCache.get(event.banner);
@@ -849,7 +862,7 @@ public class LauncherEventHandler
       String bannerImage = event.banner.split("\\|")[0];
       double bannerIntensity = Double.parseDouble(event.banner.split("\\|")[1]);
       if (!bannerImage.contains(".gif")) {
-        image = new LauncherUI.BannerImage(this.ui.processImageForBanner(_cacheManager.fetchImage(bannerImage, Scale.px(800), Scale.px(550)), bannerIntensity));
+        image = new LauncherUI.BannerImage(this.ui.processImageForBanner(_cacheManager.fetchImage(bannerImage, HiDpi.px(Scale.px(800)), HiDpi.px(Scale.px(550))), bannerIntensity));
       } else {
         image = this.ui.processAnimatedImageForBanner(ImageUtil.getAnimatedImageFromURL(bannerImage), bannerIntensity);
       }
@@ -912,7 +925,7 @@ public class LauncherEventHandler
       if (event.startsAt > System.currentTimeMillis()) {
         // The event has not yet started
         this.ui.bannerTimer.setText(_localeManager.getValue("m.banner_starts_at_time_remaining", localizeTimeRemaining(DateUtil.getFormattedTimeRemaining(event.startsAt))));
-        this.ui.bannerTimer.setToolTipText(_localeManager.getValue("m.banner_starts_at_time", DateUtil.getFormattedTime(event.startsAt, TimeZone.getDefault().getID())));
+        this.ui.bannerTimer.setToolTipText(_localeManager.getValue("m.banner_starts_at_time", DateUtil.getFormattedTime(event.startsAt)));
       } else if (System.currentTimeMillis() > event.endsAt) {
         // The event already ended
         this.ui.bannerTimer.setText(_localeManager.getValue("m.banner_ends_at_ended"));
@@ -920,7 +933,7 @@ public class LauncherEventHandler
       } else {
         // The event is currently running
         this.ui.bannerTimer.setText(_localeManager.getValue("m.banner_ends_at_time_remaining", localizeTimeRemaining(DateUtil.getFormattedTimeRemaining(event.endsAt))));
-        this.ui.bannerTimer.setToolTipText(_localeManager.getValue("m.banner_ends_at_time", DateUtil.getFormattedTime(event.endsAt, TimeZone.getDefault().getID())));
+        this.ui.bannerTimer.setToolTipText(_localeManager.getValue("m.banner_ends_at_time", DateUtil.getFormattedTime(event.endsAt)));
       }
 
       // In any case, the timer needs to be visible
@@ -937,8 +950,8 @@ public class LauncherEventHandler
     Settings.playAnimatedBanners = !Settings.playAnimatedBanners;
     _settingsManager.setValue("launcher.playAnimatedBanners", Boolean.toString(Settings.playAnimatedBanners));
 
-    Icon playAnimatedBannersIconEnabled = IconFontSwing.buildIcon(FontAwesome.EYE, Scale.px(18), Color.WHITE);
-    Icon playAnimatedBannersIconDisabled = IconFontSwing.buildIcon(FontAwesome.EYE_SLASH, Scale.px(18), Color.WHITE);
+    Icon playAnimatedBannersIconEnabled = FontIcon.of(FontAwesome.EYE, Scale.px(18), Color.WHITE);
+    Icon playAnimatedBannersIconDisabled = FontIcon.of(FontAwesome.EYE_SLASH, Scale.px(18), Color.WHITE);
     this.ui.playAnimatedBannersButton.setIcon(Settings.playAnimatedBanners ? playAnimatedBannersIconEnabled : playAnimatedBannersIconDisabled);
     this.ui.playAnimatedBannersButton.setToolTipText(_localeManager.getValue(Settings.playAnimatedBanners ? "m.animated_banners_disable" : "m.animated_banners_enable"));
     this.ui.playAnimatedBannersButton.setBackground(Settings.playAnimatedBanners ? CustomColors.INTERFACE_BUTTON_BACKGROUND : CustomColors.LIGHT_RED);
@@ -1263,7 +1276,7 @@ public class LauncherEventHandler
     // We'll be holding on to the process until it closes, so keep its output from piling up.
     ProcessUtil.discardOutput(process);
 
-    Thread watcher = new Thread(() -> {
+    ThreadingUtil.startDaemon("EditorWatcher", () -> {
       try {
         waitForEditorWindow(process);
         if (process.isAlive()) SwingUtilities.invokeLater(this::hideLauncher);
@@ -1272,9 +1285,7 @@ public class LauncherEventHandler
         log.error(e);
       }
       SwingUtilities.invokeLater(this::exitEditorSession);
-    }, "EditorWatcher");
-    watcher.setDaemon(true);
-    watcher.start();
+    });
   }
 
   /**

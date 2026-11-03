@@ -1,5 +1,7 @@
 package com.lucasluqui.launcher;
 
+import com.lucasluqui.swing.FontIcon;
+import com.lucasluqui.swing.HiDpi;
 import com.lucasluqui.swing.Scale;
 import com.google.inject.Inject;
 import com.lucasluqui.dialog.Dialog;
@@ -9,12 +11,15 @@ import com.lucasluqui.download.data.URLDownloadQueue;
 import com.lucasluqui.launcher.ui.BaseUI;
 import com.lucasluqui.util.FileUtil;
 import com.lucasluqui.util.ImageUtil;
+import com.lucasluqui.util.JavaUtil;
 import com.lucasluqui.util.ProcessUtil;
 import com.lucasluqui.util.ZipUtil;
+import com.lucasluqui.util.ThreadingUtil;
 import com.lucasluqui.swing.LoadingIcon;
 import com.lucasluqui.swing.SlimProgressBarUI;
+import com.lucasluqui.swing.TaskbarProgress;
+
 import jiconfont.icons.font_awesome.FontAwesome;
-import jiconfont.swing.IconFontSwing;
 
 import javax.swing.*;
 import java.awt.*;
@@ -111,7 +116,8 @@ public class Updater extends BaseUI
     content.addMouseListener(dragListener);
     content.addMouseMotionListener(dragListener);
 
-    JLabel launcherLogo = new JLabel(new ImageIcon(logoImage.getScaledInstance(Scale.px(72), Scale.px(72), Image.SCALE_SMOOTH)));
+    JLabel launcherLogo = new JLabel(HiDpi.icon(ImageUtil.resizeImagePreserveTransparency(logoImage,
+      HiDpi.px(Scale.px(72)), HiDpi.px(Scale.px(72))), Scale.px(72), Scale.px(72)));
     launcherLogo.setBounds(Scale.rect(24, 28, 72, 72));
     content.add(launcherLogo);
 
@@ -144,6 +150,7 @@ public class Updater extends BaseUI
     updaterProgressBar.setBounds(Scale.rect(116 - SlimProgressBarUI.GLOW_MARGIN, 124 - 8, 320 + SlimProgressBarUI.GLOW_MARGIN * 2, 16));
     updaterProgressBar.addChangeListener(e ->
       updaterStep.setText(updaterProgressBar.getValue() + " / " + updaterProgressBar.getMaximum()));
+    TaskbarProgress.follow(updaterProgressBar);
     content.add(updaterProgressBar);
 
     JLabel footnote = new JLabel("The launcher will restart by itself once it's done.");
@@ -158,8 +165,7 @@ public class Updater extends BaseUI
 
   private void startUpdate ()
   {
-    Thread updateThread = new Thread(this::update);
-    updateThread.start();
+    ThreadingUtil.start("Updater", this::update);
   }
 
   private void update ()
@@ -187,7 +193,7 @@ public class Updater extends BaseUI
     new File(LauncherGlobals.USER_DIR + "/KnightLauncher.zip").delete();
 
     updaterProgressBar.setValue(4);
-    updaterState.setIcon(IconFontSwing.buildIcon(FontAwesome.CHECK, Scale.px(14), CustomColors.GREEN));
+    updaterState.setIcon(FontIcon.of(FontAwesome.CHECK, Scale.px(14), CustomColors.GREEN));
     updaterState.setText("Update finished");
     this.finish(true);
   }
@@ -255,9 +261,9 @@ public class Updater extends BaseUI
 
     String[] startParams;
     if (success) {
-      startParams = new String[]{"java", "-jar", LauncherGlobals.USER_DIR + "/KnightLauncher.jar"};
+      startParams = JavaUtil.getLauncherCommand();
     } else {
-      startParams = new String[]{"java", "-jar", LauncherGlobals.USER_DIR + "/KnightLauncher.jar", "updateFailed"};
+      startParams = JavaUtil.getLauncherCommand("updateFailed");
     }
     ProcessUtil.run(startParams, true);
 

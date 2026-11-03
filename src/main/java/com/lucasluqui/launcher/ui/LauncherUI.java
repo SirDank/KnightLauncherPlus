@@ -1,9 +1,7 @@
 package com.lucasluqui.launcher.ui;
 
-import com.lucasluqui.swing.Scale;
-import com.formdev.flatlaf.FlatClientProperties;
-import com.google.inject.Inject;
-import com.jhlabs.image.GaussianFilter;
+import com.lucasluqui.swing.FontIcon;
+import com.lucasluqui.swing.HiDpi;
 import com.lucasluqui.dialog.Dialog;
 import com.lucasluqui.discord.DiscordPresenceClient;
 import com.lucasluqui.launcher.*;
@@ -17,11 +15,18 @@ import com.lucasluqui.launcher.setting.ui.SettingsUI;
 import com.lucasluqui.launcher.ui.handler.LauncherEventHandler;
 import com.lucasluqui.swing.SmoothProgressBar;
 import com.lucasluqui.swing.SlimProgressBarUI;
+import com.lucasluqui.swing.TaskbarProgress;
 import com.lucasluqui.util.*;
 import com.lucasluqui.swing.LoadingIcon;
+import com.lucasluqui.swing.Scale;
+
+import com.formdev.flatlaf.FlatClientProperties;
+
+import com.google.inject.Inject;
+
+import com.jhlabs.image.GaussianFilter;
+
 import jiconfont.icons.font_awesome.FontAwesome;
-import jiconfont.swing.IconFontSwing;
-import org.madlonkay.desktopsupport.DesktopSupport;
 
 import javax.swing.*;
 import java.awt.*;
@@ -33,7 +38,6 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.TimeZone;
 import java.util.function.BooleanSupplier;
 
 import static com.lucasluqui.launcher.ui.Log.log;
@@ -57,7 +61,9 @@ public class LauncherUI extends BaseUI
           Image image = Toolkit.getDefaultToolkit().getImage(
             LauncherGlobals.USER_DIR + File.separator + "KnightLauncher" + File.separator + "images" + File.separator + "icon-512.png"
           );
-          DesktopSupport.getSupport().setDockIconImage(image);
+          if (Taskbar.isTaskbarSupported() && Taskbar.getTaskbar().isSupported(Taskbar.Feature.ICON_IMAGE)) {
+            Taskbar.getTaskbar().setIconImage(image);
+          }
         } catch (Exception e) {
           log.error("Failed to set macOS dock image", e);
         }
@@ -139,7 +145,7 @@ public class LauncherUI extends BaseUI
 
     // Sized to fill the banner area like the real banners, which get resized for the UI scale too.
     banner = ImageUtil.resizeImagePreserveTransparency(
-      ImageUtil.loadImageWithinJar("/rsrc/img/banner-loading.png"), Scale.px(800), Scale.px(550));
+      ImageUtil.loadImageWithinJar("/rsrc/img/banner-loading.png"), HiDpi.px(Scale.px(800)), HiDpi.px(Scale.px(550)));
 
     panel = new JPanel()
     {
@@ -147,17 +153,20 @@ public class LauncherUI extends BaseUI
       protected void paintComponent (Graphics g)
       {
         super.paintComponent(g);
+        // Banners can be bigger than the area they cover (made for the display's resolution) or exactly its
+        // size (animated ones, to keep their memory use down), so they're always fit into it.
+        Graphics2D g2d = (Graphics2D) g.create();
+        g2d.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+        int width = Scale.px(800);
+        int height = Scale.px(550);
         BufferedImage previous = previousBanner;
         if (previous != null && bannerFade < 1f) {
           // Mid cross-fade, draw the new banner on top of the old one with increasing opacity.
-          Graphics2D g2d = (Graphics2D) g.create();
-          g2d.drawImage(previous, 0, 0, null);
+          g2d.drawImage(previous, 0, 0, width, height, null);
           g2d.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, bannerFade));
-          g2d.drawImage(banner, 0, 0, null);
-          g2d.dispose();
-        } else {
-          g.drawImage(banner, 0, 0, null);
         }
+        g2d.drawImage(banner, 0, 0, width, height, null);
+        g2d.dispose();
         paintBannerScrim(g);
       }
     };
@@ -180,10 +189,12 @@ public class LauncherUI extends BaseUI
     panel.setComponentZOrder(bannerLoading, 0);
 
     JLabel launcherLogo = new JLabel();
-    // Shrunk down from a big version so it stays sharp at any UI scale. Hovering brightens it up a bit.
-    BufferedImage launcherLogoImage = ImageUtil.resizeImagePreserveTransparency(
-      ImageUtil.loadImageWithinJar("/rsrc/img/icon-256.png"), Scale.px(92), Scale.px(92));
-    BufferedImage launcherLogoImageHover = ImageUtil.brighten(launcherLogoImage, 15);
+    // Shrunk down from a big version so it stays sharp at any UI scale, made at the display's resolution.
+    // Hovering brightens it up a bit.
+    BufferedImage launcherLogoBase = ImageUtil.resizeImagePreserveTransparency(
+      ImageUtil.loadImageWithinJar("/rsrc/img/icon-256.png"), HiDpi.px(Scale.px(92)), HiDpi.px(Scale.px(92)));
+    Image launcherLogoImage = HiDpi.image(launcherLogoBase, Scale.px(92), Scale.px(92));
+    Image launcherLogoImageHover = HiDpi.image(ImageUtil.brighten(launcherLogoBase, 15), Scale.px(92), Scale.px(92));
     launcherLogo.setBounds(Scale.rect(0, -27, 251, 200));
     launcherLogo.setHorizontalAlignment(SwingConstants.CENTER);
     launcherLogo.setIcon(new ImageIcon(launcherLogoImage));
@@ -248,7 +259,7 @@ public class LauncherUI extends BaseUI
     serverInfoButton.addActionListener(l -> this.eventHandler.displaySelectedServerInfo());
     sidePane.add(serverInfoButton);
 
-    Icon playerCountTitleIcon = IconFontSwing.buildIcon(FontAwesome.USERS, Scale.px(17), CustomColors.INTERFACE_DEFAULT);
+    Icon playerCountTitleIcon = FontIcon.of(FontAwesome.USERS, Scale.px(17), CustomColors.INTERFACE_DEFAULT);
     JLabel playerCountTitleLabel = new JLabel(_localeManager.getValue("m.players_online"));
     playerCountTitleLabel.setIcon(playerCountTitleIcon);
     playerCountTitleLabel.setBounds(Scale.rect(35, 188, 135, 20));
@@ -280,7 +291,7 @@ public class LauncherUI extends BaseUI
     // silverweave button needs the group to sit higher to stay centered between its neighbors.
     int sideButtonsY = 260;
 
-    Icon settingsIcon = IconFontSwing.buildIcon(FontAwesome.COGS, Scale.px(16), ColorUtil.getForegroundColor());
+    Icon settingsIcon = FontIcon.of(FontAwesome.COGS, Scale.px(16), ColorUtil.getForegroundColor());
     settingsButton = new JButton(_localeManager.getValue("b.settings"));
     settingsButton.setIcon(settingsIcon);
     settingsButton.setBounds(Scale.rect(28, sideButtonsY, 125, 35));
@@ -297,7 +308,7 @@ public class LauncherUI extends BaseUI
     });
     sidePane.add(settingsButton);
 
-    Icon modsIcon = IconFontSwing.buildIcon(FontAwesome.PUZZLE_PIECE, Scale.px(16), ColorUtil.getForegroundColor());
+    Icon modsIcon = FontIcon.of(FontAwesome.PUZZLE_PIECE, Scale.px(16), ColorUtil.getForegroundColor());
     modButton = new JButton(_localeManager.getValue("b.mods"));
     modButton.setIcon(modsIcon);
     modButton.setBounds(Scale.rect(28, sideButtonsY + 40, 125, 35));
@@ -315,7 +326,7 @@ public class LauncherUI extends BaseUI
     });
     sidePane.add(modButton);
 
-    Icon editorsIcon = IconFontSwing.buildIcon(FontAwesome.PENCIL, Scale.px(16), ColorUtil.getForegroundColor());
+    Icon editorsIcon = FontIcon.of(FontAwesome.PENCIL, Scale.px(16), ColorUtil.getForegroundColor());
     editorsButton = new JButton(_localeManager.getValue("b.editors"));
     editorsButton.setIcon(editorsIcon);
     editorsButton.setBounds(Scale.rect(28, sideButtonsY + 80, 125, 35));
@@ -333,7 +344,7 @@ public class LauncherUI extends BaseUI
     });
     sidePane.add(editorsButton);
 
-    Icon silverweaveIcon = IconFontSwing.buildIcon(FontAwesome.MAGIC, Scale.px(16), Color.WHITE);
+    Icon silverweaveIcon = FontIcon.of(FontAwesome.MAGIC, Scale.px(16), Color.WHITE);
     silverweaveButton = new JButton(_localeManager.getValue("b.silverweave"));
     silverweaveButton.setIcon(silverweaveIcon);
     silverweaveButton.setBounds(Scale.rect(28, sideButtonsY + 120, 125, 35));
@@ -363,7 +374,7 @@ public class LauncherUI extends BaseUI
     sidePane.add(discordButton);
     discordButton.addActionListener(e -> DesktopUtil.openWebpage(LauncherGlobals.URL_DISCORD));
 
-    Icon bugIcon = IconFontSwing.buildIcon(FontAwesome.BUG, Scale.px(17), Color.WHITE);
+    Icon bugIcon = FontIcon.of(FontAwesome.BUG, Scale.px(17), Color.WHITE);
     JButton bugButton = new JButton(bugIcon);
     bugButton.setBounds(Scale.rect(107, 440, 36, 36));
     bugButton.setToolTipText(_localeManager.getValue("b.bugs"));
@@ -374,7 +385,7 @@ public class LauncherUI extends BaseUI
     sidePane.add(bugButton);
     bugButton.addActionListener(e -> DesktopUtil.openWebpage(LauncherGlobals.URL_BUG_REPORT));
 
-    Icon donateIcon = IconFontSwing.buildIcon(FontAwesome.USD, Scale.px(17), Color.WHITE);
+    Icon donateIcon = FontIcon.of(FontAwesome.USD, Scale.px(17), Color.WHITE);
     JButton donateButton = new JButton(donateIcon);
     donateButton.setBounds(Scale.rect(149, 440, 36, 36));
     donateButton.setToolTipText(_localeManager.getValue("b.donate"));
@@ -385,7 +396,7 @@ public class LauncherUI extends BaseUI
     sidePane.add(donateButton);
     donateButton.addActionListener(e -> DesktopUtil.openWebpage(LauncherGlobals.URL_DONATE));
 
-    JLabel launcherVersion = new JLabel("v" + BuildConfig.getVersion() + " ");
+    JLabel launcherVersion = new JLabel("v" + BuildConfig.getVersion());
     launcherVersion.setFont(Fonts.getFont("default", 9.0f, Font.ITALIC));
     launcherVersion.setForeground(CustomColors.INTERFACE_SIDEPANE_FOOTNOTE);
     launcherVersion.setHorizontalAlignment(SwingConstants.RIGHT);
@@ -435,7 +446,7 @@ public class LauncherUI extends BaseUI
     panel.add(bannerLinkButton);
 
     serverNoticeButton = new JButton(_localeManager.getValue("b.server_notice"));
-    serverNoticeButton.setIcon(IconFontSwing.buildIcon(FontAwesome.EXCLAMATION_TRIANGLE, Scale.px(13), Color.BLACK));
+    serverNoticeButton.setIcon(FontIcon.of(FontAwesome.EXCLAMATION_TRIANGLE, Scale.px(13), Color.BLACK));
     serverNoticeButton.setBounds(Scale.rect(510, 388, 252, 25));
     serverNoticeButton.setFocusPainted(false);
     serverNoticeButton.setFocusable(false);
@@ -473,7 +484,7 @@ public class LauncherUI extends BaseUI
         Server selectedServer = _flamingoManager.getSelectedServer();
         if (selectedServer.getMaintenanceStatus() == 1) {
           Dialog.push(
-            _localeManager.getValue("m.scheduled_maintenance_warning", new String[] { DateUtil.getFormattedTime(selectedServer.maintenanceEndsAt, TimeZone.getDefault().getID()) }),
+            _localeManager.getValue("m.scheduled_maintenance_warning", new String[] { DateUtil.getFormattedTime(selectedServer.maintenanceEndsAt) }),
             _localeManager.getValue("t.scheduled_maintenance"),
             JOptionPane.WARNING_MESSAGE
           );
@@ -483,7 +494,7 @@ public class LauncherUI extends BaseUI
       }
     });
 
-    Icon launchPopupMenuIcon = IconFontSwing.buildIcon(FontAwesome.BARS, Scale.px(24), Color.WHITE);
+    Icon launchPopupMenuIcon = FontIcon.of(FontAwesome.BARS, Scale.px(24), Color.WHITE);
     launchPopupMenuButton = new JButton(launchPopupMenuIcon);
     launchPopupMenuButton.setBounds(Scale.rect(720, 424, 52, 52));
     launchPopupMenuButton.setOpaque(false);
@@ -559,7 +570,7 @@ public class LauncherUI extends BaseUI
       }
     });
 
-    Icon altModeEnabledIcon = IconFontSwing.buildIcon(FontAwesome.USER_PLUS, Scale.px(16), Color.WHITE);
+    Icon altModeEnabledIcon = FontIcon.of(FontAwesome.USER_PLUS, Scale.px(16), Color.WHITE);
     altModeEnabledLabel = new JLabel(_localeManager.getValue("m.alt_mode"));
     altModeEnabledLabel.setIcon(altModeEnabledIcon);
     altModeEnabledLabel.setBounds(Scale.rect(540, 480, 130, 20));
@@ -576,12 +587,11 @@ public class LauncherUI extends BaseUI
 
     // Progress box: the current task with a spinner and its percentage on top, a slim bar below.
     // Vertically centered on the play button next to it.
-    BufferedImage launchBackgroundImage = ImageUtil.generatePlainColorImage(Scale.px(446), Scale.px(64), CustomColors.INTERFACE_MAINPANE_SUBBACKGROUND_FOCUS_DARK);
-    launchBackgroundImage = (BufferedImage) ImageUtil.addRoundedCorners(launchBackgroundImage, Scale.px(28));
-    ImageUtil.setAlpha(launchBackgroundImage, (byte) 245);
+    Color launchBackgroundColor = CustomColors.INTERFACE_MAINPANE_SUBBACKGROUND_FOCUS_DARK;
     launchBackground = new JLabel("");
     launchBackground.setBounds(Scale.rect(28, 417, 446, 64));
-    launchBackground.setIcon(new ImageIcon(launchBackgroundImage));
+    launchBackground.setIcon(HiDpi.roundedRectIcon(Scale.px(446), Scale.px(64), Scale.px(28),
+      new Color(launchBackgroundColor.getRed(), launchBackgroundColor.getGreen(), launchBackgroundColor.getBlue(), 245)));
     launchBackground.setVisible(false);
     panel.add(launchBackground);
     panel.setComponentZOrder(launchBackground, 1);
@@ -615,10 +625,12 @@ public class LauncherUI extends BaseUI
     // The percentage follows the bar's animation rather than jumping straight to the new value.
     launchProgressBar.addChangeListener(e ->
       launchProgressPercent.setText(Math.round(launchProgressBar.getPercentComplete() * 100) + "%"));
+    // Every task goes through this bar (the mods screen's bar mirrors it), so it speaks for the whole launcher.
+    TaskbarProgress.follow(launchProgressBar);
     panel.add(launchProgressBar);
     panel.setComponentZOrder(launchProgressBar, 0);
 
-    Icon changelogIcon = IconFontSwing.buildIcon(FontAwesome.BOOK, Scale.px(18), Color.WHITE);
+    Icon changelogIcon = FontIcon.of(FontAwesome.BOOK, Scale.px(18), Color.WHITE);
     changelogButton = new JButton(changelogIcon);
     changelogButton.setBounds(Scale.rect(736, 26, 36, 36));
     changelogButton.setToolTipText(_localeManager.getValue("m.changelog_title"));
@@ -632,7 +644,7 @@ public class LauncherUI extends BaseUI
     panel.add(changelogButton);
     changelogButton.addActionListener(l -> _ctx.getApp().showUI(ChangelogUI.class));
 
-    Icon warningNoticeIcon = IconFontSwing.buildIcon(FontAwesome.EXCLAMATION_TRIANGLE, Scale.px(16), Color.WHITE);
+    Icon warningNoticeIcon = FontIcon.of(FontAwesome.EXCLAMATION_TRIANGLE, Scale.px(16), Color.WHITE);
     warningNotice = new JButton(warningNoticeIcon);
     warningNotice.setBounds(Scale.rect(691, 26, 36, 36));
     warningNotice.setToolTipText(_localeManager.getValue("m.warning_notice"));
@@ -648,7 +660,7 @@ public class LauncherUI extends BaseUI
     });
     panel.add(warningNotice);
 
-    Icon updateIcon = IconFontSwing.buildIcon(FontAwesome.CLOUD_DOWNLOAD, Scale.px(16), Color.WHITE);
+    Icon updateIcon = FontIcon.of(FontAwesome.CLOUD_DOWNLOAD, Scale.px(16), Color.WHITE);
     updateButton = new JButton(updateIcon);
     updateButton.setBounds(Scale.rect(691, 26, 36, 36));
     updateButton.setToolTipText(_localeManager.getValue("b.update"));
@@ -664,8 +676,8 @@ public class LauncherUI extends BaseUI
       l -> _ctx.getApp().doUpdate()
     );
 
-    Icon playAnimatedBannersIconEnabled = IconFontSwing.buildIcon(FontAwesome.EYE, Scale.px(18), Color.WHITE);
-    Icon playAnimatedBannersIconDisabled = IconFontSwing.buildIcon(FontAwesome.EYE_SLASH, Scale.px(18), Color.WHITE);
+    Icon playAnimatedBannersIconEnabled = FontIcon.of(FontAwesome.EYE, Scale.px(18), Color.WHITE);
+    Icon playAnimatedBannersIconDisabled = FontIcon.of(FontAwesome.EYE_SLASH, Scale.px(18), Color.WHITE);
     playAnimatedBannersButton = new JButton(Settings.playAnimatedBanners ? playAnimatedBannersIconEnabled : playAnimatedBannersIconDisabled);
     playAnimatedBannersButton.setBounds(Scale.rect(736, 71, 36, 36));
     playAnimatedBannersButton.setToolTipText(_localeManager.getValue(Settings.playAnimatedBanners ? "m.animated_banners_disable" : "m.animated_banners_enable"));
@@ -716,8 +728,10 @@ public class LauncherUI extends BaseUI
 
   public BufferedImage processImageForBanner (BufferedImage image, double intensity)
   {
-    image = ImageUtil.resizeImage(image, Scale.px(800), Scale.px(550));
-    image = ImageUtil.fadeEdges(image, intensity);
+    // Made at the display's resolution. The fade darkens by distance in pixels, so it's toned down to match.
+    double scale = HiDpi.scale();
+    image = ImageUtil.resizeImage(image, HiDpi.px(Scale.px(800), scale), HiDpi.px(Scale.px(550), scale));
+    image = ImageUtil.fadeEdges(image, intensity / scale);
     return image;
   }
 
@@ -751,7 +765,7 @@ public class LauncherUI extends BaseUI
    */
   public void playAnimatedBanner (BannerImage image, BooleanSupplier active)
   {
-    Thread animThread = new Thread(() -> {
+    ThreadingUtil.startDaemon("AnimatedBanner", () -> {
       while (active.getAsBoolean()) {
         for (int i = 0; i < image.frames.size(); i++) {
           try {
@@ -768,8 +782,6 @@ public class LauncherUI extends BaseUI
         }
       }
     });
-    animThread.setDaemon(true);
-    animThread.start();
   }
 
   /**
@@ -784,7 +796,7 @@ public class LauncherUI extends BaseUI
       foreground = blend(foreground, CustomColors.WARNING, 0.35f);
     }
 
-    bannerTimer.setIcon(IconFontSwing.buildIcon(FontAwesome.CLOCK_O, Scale.px(16), foreground));
+    bannerTimer.setIcon(FontIcon.of(FontAwesome.CLOCK_O, Scale.px(16), foreground));
     bannerTimer.setForeground(foreground);
     bannerTimer.putClientProperty(FlatClientProperties.STYLE,
       "background:" + ColorUtil.colorToHexString(background)
@@ -1056,7 +1068,7 @@ public class LauncherUI extends BaseUI
           // maintenance ongoing.
           launchButton.setBackground(CustomColors.WARNING);
           launchButton.setForeground(Color.BLACK);
-          launchButton.setIcon(IconFontSwing.buildIcon(FontAwesome.EXCLAMATION_TRIANGLE, Scale.px(13), Color.BLACK));
+          launchButton.setIcon(FontIcon.of(FontAwesome.EXCLAMATION_TRIANGLE, Scale.px(13), Color.BLACK));
           break;
         case 2:
           // maintenance scheduled.

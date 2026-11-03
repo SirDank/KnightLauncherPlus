@@ -1,8 +1,8 @@
 package com.lucasluqui.launcher.setting.ui;
 
+import com.lucasluqui.swing.FontIcon;
+import com.lucasluqui.swing.HiDpi;
 import com.lucasluqui.swing.Scale;
-import com.formdev.flatlaf.FlatClientProperties;
-import com.google.inject.Inject;
 import com.lucasluqui.dialog.Dialog;
 import com.lucasluqui.launcher.*;
 import com.lucasluqui.launcher.flamingo.FlamingoManager;
@@ -13,9 +13,11 @@ import com.lucasluqui.launcher.setting.ui.handler.SettingsEventHandler;
 import com.lucasluqui.launcher.setting.SettingsManager;
 import com.lucasluqui.swing.SmoothScrollPane;
 import com.lucasluqui.util.*;
+
 import jiconfont.icons.font_awesome.FontAwesome;
-import jiconfont.swing.IconFontSwing;
 import org.apache.commons.text.WordUtils;
+import com.formdev.flatlaf.FlatClientProperties;
+import com.google.inject.Inject;
 
 import javax.swing.*;
 import java.awt.*;
@@ -23,9 +25,10 @@ import java.awt.event.FocusEvent;
 import java.awt.event.FocusListener;
 import java.awt.event.ItemEvent;
 import java.awt.event.ItemListener;
-import java.awt.image.BufferedImage;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public class SettingsUI extends BaseUI
 {
@@ -467,7 +470,7 @@ public class SettingsUI extends BaseUI
     labelFileCleanExplained.setFont(Fonts.getFont("default", 11.0f, Font.ITALIC));
     gamePanel.add(labelFileCleanExplained);
 
-    Icon startIcon = IconFontSwing.buildIcon(FontAwesome.SHARE, Scale.px(16), ColorUtil.getForegroundColor());
+    Icon startIcon = FontIcon.of(FontAwesome.SHARE, Scale.px(16), ColorUtil.getForegroundColor());
     forceRebuildButton = new JButton(startIcon);
     forceRebuildButton.setBounds(Scale.rect(575, 310, 40, 23));
     forceRebuildButton.setFocusPainted(false);
@@ -620,11 +623,7 @@ public class SettingsUI extends BaseUI
 
       betaCodeResultLabel.setVisible(true);
 
-      // Hide the result label after some time.
-      Thread hideResultThread = new Thread(() -> {
-        betaCodeResultLabel.setVisible(false);
-      });
-      ThreadingUtil.executeWithDelay(hideResultThread, 5000);
+      hideLater(betaCodeResultLabel);
     });
 
     activeCodesLabel = new JLabel(_localeManager.getValue("m.beta_code_activated"));
@@ -634,10 +633,8 @@ public class SettingsUI extends BaseUI
     activeCodesLabel.setVisible(false);
     betasPanel.add(activeCodesLabel);
 
-    BufferedImage activeCodesBackgroundImage = ImageUtil.generatePlainColorImage(Scale.px(475), Scale.px(140), CustomColors.INTERFACE_MAINPANE_SUBBACKGROUND);
-    activeCodesBackgroundImage = (BufferedImage) ImageUtil.addRoundedCorners(activeCodesBackgroundImage, Scale.px(25));
     activeCodesBackground = new JLabel("");
-    activeCodesBackground.setIcon(new ImageIcon(activeCodesBackgroundImage));
+    activeCodesBackground.setIcon(HiDpi.roundedRectIcon(Scale.px(475), Scale.px(140), Scale.px(25), CustomColors.INTERFACE_MAINPANE_SUBBACKGROUND));
     activeCodesBackground.setBounds(Scale.rect(25, 220, 475, 140));
     activeCodesBackground.setVisible(false);
     betasPanel.add(activeCodesBackground);
@@ -685,11 +682,7 @@ public class SettingsUI extends BaseUI
       betaCodeSpecialResultLabel.setVisible(true);
       betaCodeSpecialResultLabel.setText(_localeManager.getValue("m.beta_code_revalidated"));
 
-      // Hide the result label after some time.
-      Thread hideResultThread = new Thread(() -> {
-        betaCodeSpecialResultLabel.setVisible(false);
-      });
-      ThreadingUtil.executeWithDelay(hideResultThread, 5000);
+      hideLater(betaCodeSpecialResultLabel);
     });
 
     betaCodeClearLocalButton = new JButton(_localeManager.getValue("b.beta_code_clear_local"));
@@ -711,19 +704,35 @@ public class SettingsUI extends BaseUI
         betaCodeSpecialResultLabel.setVisible(true);
         betaCodeSpecialResultLabel.setText(_localeManager.getValue("m.beta_code_cleared"));
 
-        // Hide the result label after some time.
-        Thread hideResultThread = new Thread(() -> {
-          betaCodeSpecialResultLabel.setVisible(false);
-        });
-        ThreadingUtil.executeWithDelay(hideResultThread, 5000);
+        hideLater(betaCodeSpecialResultLabel);
       }
     });
 
     return betasPanel;
   }
 
+  /**
+   * Hides a result label after a while. Showing a new result before then starts the wait over, so it doesn't
+   * vanish right after appearing.
+   */
+  private void hideLater (JComponent label)
+  {
+    javax.swing.Timer timer = _hideTimers.computeIfAbsent(label, l -> {
+      javax.swing.Timer t = new javax.swing.Timer(RESULT_HIDE_DELAY, e -> l.setVisible(false));
+      t.setRepeats(false);
+      return t;
+    });
+    timer.restart();
+  }
+
   public void updateActiveBetaCodes ()
   {
+    // Called from the online loader too, rebuilding the list has to happen on the EDT.
+    if (!SwingUtilities.isEventDispatchThread()) {
+      SwingUtilities.invokeLater(this::updateActiveBetaCodes);
+      return;
+    }
+
     List<Server> entitledServers = new ArrayList<>();
 
     for (Server server : _flamingoManager.getServerList()) {
@@ -1021,10 +1030,8 @@ public class SettingsUI extends BaseUI
     creditsLabel.setFont(Fonts.getFont("default", 14.0f, Font.ITALIC));
     aboutPanel.add(creditsLabel);
 
-    BufferedImage creditsBackgroundImage = ImageUtil.generatePlainColorImage(Scale.px(565), Scale.px(195), CustomColors.INTERFACE_MAINPANE_SUBBACKGROUND);
-    creditsBackgroundImage = (BufferedImage) ImageUtil.addRoundedCorners(creditsBackgroundImage, Scale.px(25));
     JLabel creditsBackground = new JLabel("");
-    creditsBackground.setIcon(new ImageIcon(creditsBackgroundImage));
+    creditsBackground.setIcon(HiDpi.roundedRectIcon(Scale.px(565), Scale.px(195), Scale.px(25), CustomColors.INTERFACE_MAINPANE_SUBBACKGROUND));
     creditsBackground.setBounds(Scale.rect(20, 120, 575, 195));
     aboutPanel.add(creditsBackground);
     aboutPanel.setComponentZOrder(creditsBackground, 1);
@@ -1049,6 +1056,7 @@ public class SettingsUI extends BaseUI
     credits.setBackground(null);
     credits.setEditable(false);
     credits.setHighlighter(null);
+    credits.setFocusable(false);
     credits.setAlignmentX(0);
     credits.setText(_localeManager.getValue(
       "m.credits_template", new String[]{
@@ -1153,6 +1161,8 @@ public class SettingsUI extends BaseUI
   @Inject public SettingsEventHandler eventHandler;
 
   @Inject protected LocaleManager _localeManager;
+  private final Map<JComponent, javax.swing.Timer> _hideTimers = new HashMap<>();
+  private static final int RESULT_HIDE_DELAY = 5000;
   @Inject protected SettingsManager _settingsManager;
   @Inject protected FlamingoManager _flamingoManager;
 

@@ -1,14 +1,17 @@
 package com.lucasluqui.util;
 
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
-import java.lang.reflect.Field;
+import oshi.SystemInfo;
+import oshi.hardware.ComputerSystem;
+
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.security.MessageDigest;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 import static com.lucasluqui.util.Log.log;
 
@@ -59,75 +62,51 @@ public class SystemUtil
       System.getProperty("java.home").contains("1.8");
   }
 
+  /**
+   * Identifies this machine by its motherboard: the system UUID set in the firmware, along with the board's
+   * serial number. Some manufacturers leave the UUID at a placeholder shared by many machines, which the serial
+   * number makes up for when it's set.
+   *
+   * @return The machine ID, or null if the hardware doesn't tell us anything usable.
+   */
   private static String getMachineId ()
   {
-    String machineId = null;
-
-    if (isWindows()) {
-      machineId = ProcessUtil.runAndCapture(new String[]{"cmd.exe", "/C", "wmic csproduct get UUID"})[0];
-
-      try {
-        machineId = machineId.substring(machineId.indexOf("\n")).trim();
-      } catch (Exception e) {
-        log.info("Unable to get UUID using WMIC, probably not installed. Thanks Microsoft.");
-      }
-
-      // Some lazy bios manufacturers won't bother setting a valid UUID for their BIOS and thus
-      // creating a case where someone might share an invalid or default UUID with someone else
-      // (the infamous 03000200-0400-0500-0006-000700080009 UUID!).
-      // Assuming this could be the case, we gather Windows' software GUID and add it to the mix.
-      String machineIdFailsafe = ProcessUtil.runAndCapture(new String[]{"cmd.exe", "/C", "reg query HKLM\\SOFTWARE\\Microsoft\\Cryptography /v MachineGuid"})[0];
-
-      try {
-        machineIdFailsafe = machineIdFailsafe.substring(machineIdFailsafe.indexOf("\n")).trim();
-      } catch (Exception e) {
-        log.error(e);
-      }
-
-      // Some systems return an empty string when trying to get the failsafe, so let's not add it when that's the case.
-      if (!machineIdFailsafe.isEmpty()) {
-        machineIdFailsafe = machineIdFailsafe.split("REG_SZ")[1].trim();
-        machineId += machineIdFailsafe;
-      } else {
-        // Let's make sure they don't also have an invalid UUID before letting them through without the failsafe
-        // If they do send them to the NullPointerException realm.
-        if (machineId != null && (machineId.equalsIgnoreCase("03000200-0400-0500-0006-000700080009")
-          || machineId.equalsIgnoreCase("FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF")
-          || machineId.equalsIgnoreCase("00000000-0000-0000-0000-000000000000"))) {
-          machineId = null;
-        }
-      }
+    try {
+      ComputerSystem computerSystem = new SystemInfo().getHardware().getComputerSystem();
+      String uuid = usableHardwareValue(computerSystem.getHardwareUUID());
+      String serial = usableHardwareValue(computerSystem.getBaseboard().getSerialNumber());
+      if (uuid != null || serial != null) return (uuid == null ? "" : uuid) + "|" + (serial == null ? "" : serial);
+    } catch (Throwable e) {
+      log.error("Failed to get machine id", e);
     }
 
+    // On Linux the firmware's IDs are only readable as root, but the OS keeps an ID of its own anyone can read.
     if (isUnix()) {
-      machineId = ProcessUtil.runAndCapture(new String[]{"/bin/bash", "-c", "cat /etc/machine-id"})[0];
-      machineId = machineId.replaceAll("\\r|\\n", "").trim();
-    }
-
-    // TODO: Verify this even works on Mac systems.
-    if (isMac()) {
       try {
-        String command = "system_profiler SPHardwareDataType | awk '/UUID/ { print $3; }'";
-        StringBuffer output = new StringBuffer();
-
-        Process SerNumProcess = Runtime.getRuntime().exec(command);
-        BufferedReader sNumReader = new BufferedReader(new InputStreamReader(SerNumProcess.getInputStream()));
-
-        String line = "";
-        while ((line = sNumReader.readLine()) != null) {
-          output.append(line + "\n");
-        }
-
-        machineId = output.substring(output.indexOf("UUID: "), output.length()).replace("UUID: ", "");
-
-        SerNumProcess.waitFor();
-        sNumReader.close();
+        String osId = usableHardwareValue(Files.readString(Paths.get("/etc/machine-id")));
+        if (osId != null) return "|" + osId;
       } catch (Exception e) {
-        log.error(e);
+        log.error("Failed to read /etc/machine-id", e);
       }
     }
+    return null;
+  }
 
-    return machineId;
+  /**
+   * @return The value if it identifies something, or null for blanks and the placeholders firmware tends to use.
+   */
+  private static String usableHardwareValue (String value)
+  {
+    if (value == null) return null;
+    value = value.trim();
+    if (value.isEmpty() || value.equalsIgnoreCase("unknown")
+      || value.equalsIgnoreCase("Default string") || value.equalsIgnoreCase("To be filled by O.E.M.")
+      || value.equalsIgnoreCase("03000200-0400-0500-0006-000700080009")) {
+      return null;
+    }
+    // All the same digit, like 00000000-0000-... or FFFFFFFF-FFFF-...
+    if (value.replace("-", "").chars().distinct().count() == 1) return null;
+    return value;
   }
 
   public static String getHashedMachineId ()
@@ -152,46 +131,24 @@ public class SystemUtil
     return hashedMachineId;
   }
 
+  /**
+   * Environment variables to override in every process we start, see {@link ProcessUtil}.
+   * <p>
+   * Our own environment can't be changed anymore on recent Java versions, so these are applied when starting processes instead.
+   */
+  private static final Map<String, String> ENV_OVERRIDES = new ConcurrentHashMap<>();
+
   public static void setEnv (Map<String, String> newenv)
   {
-    try {
-      Class<?> processEnvironmentClass = Class.forName("java.lang.ProcessEnvironment");
-      Field theEnvironmentField = processEnvironmentClass.getDeclaredField("theEnvironment");
-      theEnvironmentField.setAccessible(true);
-      Map<String, String> env = (Map<String, String>) theEnvironmentField.get(null);
-      env.putAll(newenv);
-      Field theCaseInsensitiveEnvironmentField = processEnvironmentClass.getDeclaredField("theCaseInsensitiveEnvironment");
-      theCaseInsensitiveEnvironmentField.setAccessible(true);
-      Map<String, String> cienv = (Map<String, String>) theCaseInsensitiveEnvironmentField.get(null);
-      cienv.putAll(newenv);
-    } catch (NoSuchFieldException e) {
-      Class[] classes = Collections.class.getDeclaredClasses();
-      Map<String, String> env = System.getenv();
-      for (Class cl : classes) {
-        if ("java.util.Collections$UnmodifiableMap".equals(cl.getName())) {
-          Field field = null;
-          try {
-            field = cl.getDeclaredField("m");
-          } catch (NoSuchFieldException ex) {
-            log.error(e);
-          }
-          field.setAccessible(true);
-          Object obj = null;
-          try {
-            obj = field.get(env);
-          } catch (IllegalAccessException ex) {
-            log.error(e);
-          }
-          Map<String, String> map = (Map<String, String>) obj;
-          map.clear();
-          map.putAll(newenv);
-        }
-      }
-    } catch (ClassNotFoundException e) {
-      log.error(e);
-    } catch (IllegalAccessException e) {
-      log.error(e);
-    }
+    ENV_OVERRIDES.putAll(newenv);
+  }
+
+  /**
+   * @return The environment variables set through {@link #setEnv(Map)}.
+   */
+  public static Map<String, String> getEnvOverrides ()
+  {
+    return Collections.unmodifiableMap(ENV_OVERRIDES);
   }
 
   public static void fixTempDir (String newDir)

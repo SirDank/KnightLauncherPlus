@@ -31,6 +31,12 @@
   </licenses>
 
   <properties>
+    <!--
+      The Java version the launcher is built for and runs on. Older Java installs that start the launcher make it
+      restart on a runtime of this version, which it downloads from the CDN if needed.
+    -->
+    <launcher.java.version>25</launcher.java.version>
+
     <env>dev</env>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
@@ -40,12 +46,22 @@
     <dependency>
       <groupId>com.google.guava</groupId>
       <artifactId>guava</artifactId>
-      <version>33.5.0-jre</version>
+      <version>33.7.1-jre</version>
     </dependency>
+    <!--
+      The regular Guice jar bundles an ASM that can't read Java 25 class files, so use the jar without
+      it ('classes') and bring in a recent ASM ourselves.
+    -->
     <dependency>
       <groupId>com.google.inject</groupId>
       <artifactId>guice</artifactId>
       <version>7.0.0</version>
+      <classifier>classes</classifier>
+    </dependency>
+    <dependency>
+      <groupId>org.ow2.asm</groupId>
+      <artifactId>asm</artifactId>
+      <version>9.11.1</version>
     </dependency>
     <dependency>
       <groupId>com.formdev</groupId>
@@ -55,7 +71,7 @@
     <dependency>
       <groupId>com.github.vatbub</groupId>
       <artifactId>mslinks</artifactId>
-      <version>1.0.5.1</version> <!-- Do not update further, requires a JDK higher than 8. -->
+      <version>1.0.6.2</version>
     </dependency>
     <dependency>
       <groupId>net.lingala.zip4j</groupId>
@@ -83,11 +99,6 @@
       <version>1.9</version>
     </dependency>
     <dependency>
-      <groupId>javax.xml.bind</groupId>
-      <artifactId>jaxb-api-osgi</artifactId>
-      <version>2.2.7</version>
-    </dependency>
-    <dependency>
       <groupId>commons-io</groupId>
       <artifactId>commons-io</artifactId>
       <version>2.21.0</version>
@@ -97,21 +108,20 @@
       <artifactId>commons-text</artifactId>
       <version>1.15.0</version>
     </dependency>
-    <!-- commonmark 0.22+ requires Java 11, stay on 0.21.x while we target Java 8. -->
     <dependency>
       <groupId>org.commonmark</groupId>
       <artifactId>commonmark</artifactId>
-      <version>0.21.0</version>
+      <version>0.32.0</version>
     </dependency>
     <dependency>
       <groupId>org.commonmark</groupId>
       <artifactId>commonmark-ext-autolink</artifactId>
-      <version>0.21.0</version>
+      <version>0.32.0</version>
     </dependency>
     <dependency>
       <groupId>org.commonmark</groupId>
       <artifactId>commonmark-ext-gfm-strikethrough</artifactId>
-      <version>0.21.0</version>
+      <version>0.32.0</version>
     </dependency>
     <dependency>
       <groupId>com.jhlabs</groupId>
@@ -127,11 +137,6 @@
       <groupId>org.slf4j</groupId>
       <artifactId>slf4j-nop</artifactId>
       <version>2.1.0-alpha1</version>
-    </dependency>
-    <dependency>
-      <groupId>org.madlonkay</groupId>
-      <artifactId>desktopsupport</artifactId>
-      <version>0.6.0</version>
     </dependency>
     <dependency>
       <groupId>org.junit.jupiter</groupId>
@@ -249,20 +254,78 @@
           </descriptorRefs>
           <archive>
             <manifest>
-              <mainClass>com.lucasluqui.launcher.LauncherApp</mainClass>
+              <mainClass>com.lucasluqui.launcher.Main</mainClass>
             </manifest>
           </archive>
           <appendAssemblyId>false</appendAssemblyId>
         </configuration>
+      </plugin>
+      <!--
+        Registers 'src/main/java8' as a source directory, mostly so IDEs pick it up.
+        It's compiled on its own for Java 8 though, see the compiler plugin below.
+      -->
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>build-helper-maven-plugin</artifactId>
+        <version>3.6.2</version>
+        <executions>
+          <execution>
+            <id>add-java8-sources</id>
+            <phase>generate-sources</phase>
+            <goals>
+              <goal>add-source</goal>
+            </goals>
+            <configuration>
+              <sources>
+                <source>${project.basedir}/src/main/java8</source>
+              </sources>
+            </configuration>
+          </execution>
+        </executions>
       </plugin>
       <plugin>
         <artifactId>maven-compiler-plugin</artifactId>
         <version>3.15.0</version>
         <configuration>
           <encoding>UTF-8</encoding>
-          <source>1.8</source>
-          <target>1.8</target>
+          <release>${launcher.java.version}</release>
         </configuration>
+        <executions>
+          <!--
+            The regular compilation only covers 'src/main/java'. Without this, it'd also pick up 'src/main/java8'
+            (added above) and compile it for Java 25, replacing its Java 8 classes.
+          -->
+          <execution>
+            <id>default-compile</id>
+            <configuration>
+              <compileSourceRoots>
+                <compileSourceRoot>${project.basedir}/src/main/java</compileSourceRoot>
+              </compileSourceRoots>
+            </configuration>
+          </execution>
+          <!--
+            Everything in 'src/main/java8' is compiled for Java 8, and before the rest so it can use it.
+            That's the jar's entry point (com.lucasluqui.launcher.Main), which has to run on whatever Java the
+            launcher gets started with (often Java 8) and restart it on Java 25 if needed.
+          -->
+          <execution>
+            <id>compile-java8</id>
+            <phase>process-sources</phase>
+            <goals>
+              <goal>compile</goal>
+            </goals>
+            <configuration>
+              <release>8</release>
+              <compileSourceRoots>
+                <compileSourceRoot>${project.basedir}/src/main/java8</compileSourceRoot>
+              </compileSourceRoots>
+              <compilerArgs>
+                <!-- Don't warn about Java 8 being an obsolete target. -->
+                <arg>-Xlint:-options</arg>
+              </compilerArgs>
+            </configuration>
+          </execution>
+        </executions>
       </plugin>
     </plugins>
   </build>
