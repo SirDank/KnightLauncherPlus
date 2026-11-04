@@ -1,39 +1,44 @@
 package com.lucasluqui.launcher.server;
 
-import java.io.File;
+import com.lucasluqui.launcher.server.db.AccountStore;
+import com.lucasluqui.launcher.server.db.KnightStore;
 import java.io.IOException;
-import java.net.Inet4Address;
-import java.net.InetAddress;
 import java.net.InetSocketAddress;
-import java.net.NetworkInterface;
-import java.net.SocketException;
 import java.net.StandardSocketOptions;
 import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.Enumeration;
 import java.util.List;
 import java.util.Map;
 import java.util.Scanner;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
-
-import com.lucasluqui.launcher.LauncherGlobals;
-import com.lucasluqui.util.SteamUtil;
 
 /**
  * Built-in Spiral Knights Game Server Emulator.
  * Provides authentic Three Rings Presents / Narya protocol negotiation,
  * Haven (OID 500) and Training Hall (OID 501), collision physics, and authoritative combat.
+ *
+ * It needs the game's own jars, so the launcher runs it in a separate JVM ({@link #main}) and talks
+ * to it over stdin/stdout (see {@link ServerNet}). It listens on loopback only unless asked to open up.
  */
 public class SpiralServer {
-    public static final int DEFAULT_PORT = 47624;
+    public static final int DEFAULT_PORT = ServerNet.DEFAULT_PORT;
+    /** Default for {@code server.maxSessions}: concurrent connections accepted, more are dropped at once. */
+    public static final int MAX_SESSIONS = 32;
+
+    // A connection that has not signed in by then is dropped: server.authTimeoutSeconds
+    // ({@code -Dsk.server.authTimeout} overrides it, for tests).
+    private final long authTimeoutSeconds;
 
     private final int port;
+    private final boolean allowLan;
     private final String dataVersion;
     private final DObjectManager dobjMgr;
     private final SceneManager sceneMgr;
@@ -42,19 +47,62 @@ public class SpiralServer {
     private final Map<Integer, ClientSession> sessions = new ConcurrentHashMap<>();
     private final AtomicInteger sessionCounter = new AtomicInteger(1);
     private final List<Consumer<String>> logListeners = new CopyOnWriteArrayList<>();
+    private final ScheduledExecutorService watchdog = Executors.newSingleThreadScheduledExecutor(task -> {
+        Thread thread = new Thread(task, "SpiralServer-AuthWatchdog");
+        thread.setDaemon(true);
+        return thread;
+    });
     private ServerSocketChannel serverChannel;
     private volatile boolean running = false;
+    /** Accounts, knights, mail and the server key: opened in {@link #start}. */
+    private ServerServices services;
 
-    public SpiralServer(int port) {
+    /** How many knights fit in a party here; for tests. */
+    int configuredPartySize() {
+        return this.movementConfig.maxPartySize;
+    }
+
+    /** The scenes of this server; for tests. */
+    SceneManager sceneManager() {
+        return this.sceneMgr;
+    }
+
+    /** The session of the player with this client object id, or null; for tests. */
+    ClientSession sessionOfClient(int clientOid) {
+        for (ClientSession session : this.sessions.values()) {
+            if (session.clientOid() == clientOid) return session;
+        }
+        return null;
+    }
+
+    /** The party object id of the player with this client object id, or -1; for tests. */
+    int partyOidOfClient(int clientOid) {
+        for (ClientSession session : this.sessions.values()) {
+            if (session.clientOid() == clientOid) return session.partyOid();
+        }
+        return -1;
+    }
+
+    /** The accounts, knights and mail of this server; for tests. */
+    ServerServices services() {
+        return this.services;
+    }
+
+
+    public SpiralServer(int port, boolean allowLan) {
         this.port = port;
+        this.allowLan = allowLan;
         this.dataVersion = detectDataVersion();
         this.dobjMgr = new DObjectManager();
-        this.sceneMgr = new SceneManager(this.dobjMgr);
+        // First, so a bad server.properties fails before the slow scene and config loading.
         this.movementConfig = MovementConfig.load();
+        this.authTimeoutSeconds = Long.getLong("sk.server.authTimeout", this.movementConfig.authTimeoutSeconds);
+        this.sceneMgr = new SceneManager(this.dobjMgr, this.movementConfig);
         this.sceneNetwork = new SceneNetworkManager(
             this.movementConfig.deltaIntervalMs,
             this.movementConfig.trainingDeltaIntervalMs,
-            this.sceneMgr.getCombatWorld());
+            this.sceneMgr::getCombatWorld);
+        this.sceneMgr.dungeons().attach(this.sceneNetwork);
     }
 
     public void addLogListener(Consumer<String> listener) {
@@ -87,18 +135,36 @@ public class SpiralServer {
         if (this.running) {
             return;
         }
-        System.setProperty("com.threerings.io.enumPolicy", "ORDINAL");
-        this.serverChannel = ServerSocketChannel.open();
-        this.serverChannel.setOption(StandardSocketOptions.SO_REUSEADDR, true);
-        this.serverChannel.bind(new InetSocketAddress(this.port), 128);
+        if (!ServerNet.validPort(this.port)) {
+            throw new IOException("Invalid port " + this.port + " (use 1-65535)");
+        }
+        // Before the port opens: a database or key problem must fail the start, with a clear message.
+        try {
+            this.services = ServerServices.open(new java.io.File(ServerNet.GAME_DIR));
+        } catch (java.sql.SQLException | IOException e) {
+            throw new IOException("Could not open the server's accounts database or key: " + e.getMessage(), e);
+        }
+        String bindHost = this.allowLan ? "0.0.0.0" : ServerNet.LOOPBACK;
+        ServerSocketChannel channel = ServerSocketChannel.open();
+        try {
+            channel.setOption(StandardSocketOptions.SO_REUSEADDR, true);
+            channel.bind(new InetSocketAddress(bindHost, this.port), 128);
+        } catch (IOException e) {
+            channel.close();
+            throw e;
+        }
+        this.serverChannel = channel;
         this.sceneNetwork.start();
         this.running = true;
 
         log("==================================================================");
         log("   SPIRAL KNIGHTS - BUILT-IN SERVER EMULATOR (KNIGHTLAUNCHER+)    ");
         log("==================================================================");
-        log(" Server listening on: 0.0.0.0:" + this.port);
-        log(" LAN/VPN addresses: " + findClientAddresses());
+        log(" Server listening on: " + bindHost + ":" + this.port
+            + (this.allowLan ? " (open to LAN/VPN)" : " (this computer only)"));
+        if (this.allowLan) {
+            log(" LAN/VPN addresses: " + ServerNet.findClientAddresses());
+        }
         log(" Transport: TCP NoDelay/KeepAlive, Haven ticks: "
             + this.movementConfig.deltaIntervalMs + "ms, Training ticks: "
             + this.movementConfig.trainingDeltaIntervalMs + "ms");
@@ -120,8 +186,15 @@ public class SpiralServer {
 
     private void acceptLoop() {
         while (running && serverChannel != null && serverChannel.isOpen()) {
+            SocketChannel clientChannel = null;
             try {
-                SocketChannel clientChannel = serverChannel.accept();
+                clientChannel = serverChannel.accept();
+                if (sessions.size() >= this.movementConfig.maxSessions) {
+                    logErr("[SpiralServer] Refused connection from " + clientChannel.getRemoteAddress()
+                        + ": " + this.movementConfig.maxSessions + " sessions already open");
+                    clientChannel.close();
+                    continue;
+                }
                 clientChannel.configureBlocking(true);
                 clientChannel.socket().setTcpNoDelay(true);
                 clientChannel.socket().setKeepAlive(true);
@@ -134,85 +207,65 @@ public class SpiralServer {
                     closed -> {
                         this.sessions.remove(closed.getConnectionId(), closed);
                         log("[SpiralServer] Session disconnected: id=" + closed.getConnectionId());
-                    });
+                        reportPlayers();
+                    }, this.services);
                 this.sessions.put(connId, session);
                 log("[SpiralServer] Accepted connection from " + clientChannel.getRemoteAddress()
                     + " (Session #" + connId + ")");
+                reportPlayers();
                 Thread sessionThread = new Thread(session, "ClientSession-" + connId);
                 sessionThread.setDaemon(true);
                 sessionThread.start();
+                watchdog.schedule(() -> {
+                    if (!session.isAuthenticated()) {
+                        log("[SpiralServer] Session #" + connId + " did not authenticate in "
+                            + authTimeoutSeconds + "s, dropping it");
+                        session.close();
+                    }
+                }, authTimeoutSeconds, TimeUnit.SECONDS);
             } catch (IOException e) {
+                if (clientChannel != null) {
+                    try { clientChannel.close(); } catch (IOException ignored) {}
+                }
                 if (running) {
                     logErr("[SpiralServer] Error accepting client: " + e.getMessage());
+                    try {
+                        Thread.sleep(100); // don't spin on a persistent failure
+                    } catch (InterruptedException interrupted) {
+                        return;
+                    }
                 }
             }
         }
     }
 
+    /** Tells the launcher the session count, in the line format {@link ServerNet#PLAYERS}. */
+    private void reportPlayers() {
+        System.out.println(ServerNet.PLAYERS + sessions.size());
+    }
+
+    /** The game version the clients should be on, from the game install's getdown.txt. */
     public static String detectDataVersion() {
-        Path[] candidates = new Path[]{
-            Path.of("getdown.txt"),
-            Path.of(LauncherGlobals.USER_DIR, "getdown.txt"),
-            Path.of(LauncherGlobals.USER_DIR, "code", "config.jar")
-        };
-        for (Path candidate : candidates) {
-            if (Files.isRegularFile(candidate)) {
-                try {
-                    for (String line : Files.readAllLines(candidate)) {
-                        String trimmed = line.trim();
-                        if (trimmed.startsWith("version")) {
-                            int separator = trimmed.indexOf('=');
-                            if (separator >= 0) {
-                                return trimmed.substring(separator + 1).trim();
-                            }
-                        }
-                    }
-                } catch (Exception ignored) {}
-            }
-        }
-        String steamPath = SteamUtil.getGamePathWindows();
-        if (steamPath != null) {
-            Path getdown = Path.of(steamPath, "getdown.txt");
-            if (Files.isRegularFile(getdown)) {
-                try {
-                    for (String line : Files.readAllLines(getdown)) {
-                        String trimmed = line.trim();
-                        if (trimmed.startsWith("version")) {
-                            int separator = trimmed.indexOf('=');
-                            if (separator >= 0) {
-                                return trimmed.substring(separator + 1).trim();
-                            }
-                        }
-                    }
-                } catch (Exception ignored) {}
-            }
-        }
-        return "20261006114613"; // fallback to known latest SK client version
+        String version = readVersion(Path.of(ServerNet.GAME_DIR, "getdown.txt"));
+        return version != null ? version : "20261006114613"; // fallback to known latest SK client version
     }
 
-    public static String findClientAddresses() {
-        List<String> addresses = new ArrayList<>();
+    private static String readVersion(Path getdown) {
+        if (!Files.isRegularFile(getdown)) {
+            return null;
+        }
         try {
-            Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
-            while (interfaces != null && interfaces.hasMoreElements()) {
-                NetworkInterface network = interfaces.nextElement();
-                if (!network.isUp() || network.isLoopback()) {
-                    continue;
-                }
-                Enumeration<InetAddress> members = network.getInetAddresses();
-                while (members.hasMoreElements()) {
-                    InetAddress address = members.nextElement();
-                    if (address instanceof Inet4Address
-                            && !address.isLoopbackAddress()
-                            && !address.isLinkLocalAddress()) {
-                        addresses.add(address.getHostAddress());
+            for (String line : Files.readAllLines(getdown)) {
+                String trimmed = line.trim();
+                if (trimmed.startsWith("version")) {
+                    int separator = trimmed.indexOf('=');
+                    if (separator >= 0) {
+                        return trimmed.substring(separator + 1).trim();
                     }
                 }
             }
-        } catch (SocketException error) {
-            return "127.0.0.1";
-        }
-        return addresses.isEmpty() ? "127.0.0.1" : String.join(", ", addresses);
+        } catch (IOException ignored) {}
+        return null;
     }
 
     public synchronized void stop() {
@@ -228,6 +281,14 @@ public class SpiralServer {
         }
         this.sessions.clear();
         this.sceneNetwork.close();
+        this.watchdog.shutdownNow();
+        if (this.services != null) {
+            try {
+                this.services.close();
+            } catch (java.sql.SQLException e) {
+                logErr("[SpiralServer] Could not close the database: " + e.getMessage());
+            }
+        }
         log("[SpiralServer] Server stopped.");
     }
 
@@ -271,7 +332,7 @@ public class SpiralServer {
             StringBuilder sb = new StringBuilder("[Players] Connected (" + sessions.size() + "):\n");
             for (ClientSession session : sessions.values()) {
                 sb.append(" - Session #").append(session.getSessionId())
-                  .append(" | ").append(session.getUsername() != null ? session.getUsername() : "HeroKnight")
+                  .append(" | ").append(session.getUsername() != null ? session.getUsername() : "(authenticating)")
                   .append(" (").append(session.getRemoteAddress()).append(")\n");
             }
             String out = sb.toString().trim();
@@ -279,8 +340,10 @@ public class SpiralServer {
             return out;
         } else if (lower.startsWith("broadcast ") || lower.startsWith("say ")) {
             String msg = cmd.substring(cmd.indexOf(' ') + 1).trim();
-            log("[BROADCAST] " + msg);
-            return "Broadcasted message to all sessions.";
+            int players = this.services == null ? 0 : this.services.online.size();
+            if (this.services != null) ChatHandler.broadcast(this.services.online.values(), msg);
+            log("[BROADCAST] " + msg + " (" + players + " players)");
+            return "Sent to " + players + " players.";
         } else if (lower.startsWith("kick ")) {
             try {
                 int targetId = Integer.parseInt(cmd.substring(5).trim());
@@ -297,8 +360,15 @@ public class SpiralServer {
                 log("[KICK] Invalid syntax. Usage: kick <sessionId>");
                 return "Invalid syntax.";
             }
+        } else if (lower.startsWith("account ") || lower.startsWith("knight ")) {
+            String out = accountCommand(cmd);
+            log(out);
+            return out;
+        } else if ("dungeon clear".equals(lower)) {
+            int killed = this.sceneMgr.dungeons().clearAll(this.sceneNetwork);
+            return "Killed " + killed + " monsters in " + this.sceneMgr.dungeons().open() + " open dungeons.";
         } else if ("help".equals(lower)) {
-            String help = "Available commands: status, players, broadcast <msg>, kick <id>, stop, help";
+            String help = "Available commands: status, players, broadcast <msg>, kick <id>, dungeon clear, account list|reset <name> <password>|delete <name>, knight list <account>, stop, help";
             log(help);
             return help;
         } else {
@@ -308,35 +378,105 @@ public class SpiralServer {
         }
     }
 
-    public static void main(String[] args) {
-        int port = DEFAULT_PORT;
-        if (args.length > 0) {
-            try {
-                port = Integer.parseInt(args[0]);
-            } catch (NumberFormatException e) {
-                System.out.println("Invalid port, using default port: " + DEFAULT_PORT);
-            }
-        }
-
-        SpiralServer server = new SpiralServer(port);
+    /** The console's {@code account ...} and {@code knight ...} commands. */
+    private String accountCommand(String command) {
+        if (this.services == null) return "Accounts are not available.";
+        String[] words = command.trim().split("\\s+", 4);
         try {
-            server.start();
-
-            Scanner scanner = new Scanner(System.in);
-            while (server.running) {
-                if (scanner.hasNextLine()) {
-                    String line = scanner.nextLine().trim();
-                    server.executeCommand(line);
-                } else {
-                    try {
-                        Thread.sleep(500);
-                    } catch (InterruptedException ignored) {}
+            if ("account".equalsIgnoreCase(words[0]) && words.length >= 2) {
+                switch (words[1].toLowerCase()) {
+                    case "list": {
+                        StringBuilder out = new StringBuilder("[Accounts]");
+                        for (AccountStore.Account account : this.services.accounts.list()) {
+                            out.append("\n - ").append(account.username).append(" (")
+                                .append(this.services.knights.list(account.id).size()).append(" knights)");
+                        }
+                        return out.toString();
+                    }
+                    case "reset":
+                        if (words.length < 4) return "Usage: account reset <name> <password>";
+                        // The game sends the MD5 hex of what is typed, and that is what is stored (hashed).
+                        return this.services.accounts.resetPassword(words[2], md5Hex(words[3]))
+                            ? "Password of " + words[2] + " changed." : "No such account (or invalid password).";
+                    case "delete": {
+                        if (words.length < 3) return "Usage: account delete <name>";
+                        AccountStore.Account account = this.services.accounts.find(words[2]).orElse(null);
+                        if (account == null) return "No such account.";
+                        ClientSession online = this.services.online.get(account.id);
+                        this.services.accounts.delete(words[2]);
+                        if (online != null) online.close();
+                        return "Account " + account.username + " and its knights deleted.";
+                    }
+                    default:
                 }
+            } else if ("knight".equalsIgnoreCase(words[0]) && words.length >= 3 && "list".equalsIgnoreCase(words[1])) {
+                AccountStore.Account account = this.services.accounts.find(command.trim().substring(command.trim().indexOf(words[2]))).orElse(null);
+                if (account == null) return "No such account.";
+                StringBuilder out = new StringBuilder("[Knights of " + account.username + "]");
+                for (KnightStore.Knight knight : this.services.knights.list(account.id)) out.append("\n - ").append(knight.name);
+                return out.toString();
             }
-        } catch (Exception e) {
-            System.err.println("[SpiralServer] Fatal error starting server: " + e.getMessage());
-            e.printStackTrace();
+        } catch (java.sql.SQLException e) {
+            return "Database error: " + e.getMessage();
+        }
+        return "Usage: account list|reset <name> <password>|delete <name>, knight list <account>";
+    }
+
+    private static String md5Hex(String text) {
+        try {
+            byte[] digest = java.security.MessageDigest.getInstance("MD5").digest(text.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            StringBuilder hex = new StringBuilder();
+            for (byte b : digest) hex.append(String.format("%02x", b));
+            return hex.toString();
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
         }
     }
-}
 
+    /**
+     * Entry point of the server process: {@code SpiralServer [--port N] [--lan]}.
+     * Prints {@link ServerNet#READY} once listening or {@link ServerNet#FATAL} and exits non-zero.
+     * Reads commands from stdin and stops when it ends, so it never outlives the launcher.
+     */
+    public static void main(String[] args) {
+        int port = DEFAULT_PORT;
+        boolean lan = false;
+        for (int i = 0; i < args.length; i++) {
+            if ("--lan".equals(args[i])) {
+                lan = true;
+            } else if ("--port".equals(args[i]) && i + 1 < args.length) {
+                try {
+                    port = Integer.parseInt(args[++i]);
+                } catch (NumberFormatException e) {
+                    fatal("Invalid port: " + args[i]);
+                }
+            }
+        }
+        // Read when the game's Streamer classes load, so it has to be set first. Scoped to this process.
+        System.setProperty("com.threerings.io.enumPolicy", "ORDINAL");
+
+        SpiralServer server;
+        try {
+            server = new SpiralServer(port, lan);
+            server.start();
+        } catch (Throwable t) {
+            t.printStackTrace(System.err);
+            fatal(t instanceof IOException || t instanceof IllegalStateException ? t.getMessage() : t.toString());
+            return;
+        }
+        System.out.println(ServerNet.READY + "port=" + port);
+        server.reportPlayers();
+
+        Scanner scanner = new Scanner(System.in);
+        while (server.running && scanner.hasNextLine()) {
+            server.executeCommand(scanner.nextLine());
+        }
+        server.stop(); // 'stop' command, or the launcher went away (stdin closed)
+        System.exit(0);
+    }
+
+    private static void fatal(String message) {
+        System.out.println(ServerNet.FATAL + message);
+        System.exit(2);
+    }
+}

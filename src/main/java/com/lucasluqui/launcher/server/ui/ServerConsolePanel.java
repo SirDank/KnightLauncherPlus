@@ -10,14 +10,17 @@ import java.util.ArrayList;
 import java.util.List;
 import javax.swing.JButton;
 import javax.swing.JPanel;
+import javax.swing.JScrollBar;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
 import javax.swing.SwingUtilities;
+import javax.swing.text.DefaultCaret;
 
 import com.formdev.flatlaf.FlatClientProperties;
 import com.lucasluqui.launcher.CustomColors;
 import com.lucasluqui.launcher.Fonts;
+import com.lucasluqui.launcher.LocaleManager;
 import com.lucasluqui.launcher.server.ServerHostManager;
 import com.lucasluqui.swing.Scale;
 
@@ -26,6 +29,7 @@ import com.lucasluqui.swing.Scale;
  */
 public class ServerConsolePanel extends JPanel {
     private static final int MAX_DOCUMENT_LINES = 1500;
+    private static final int MAX_HISTORY = 200;
 
     private final JTextArea logArea;
     private final JScrollPane scrollPane;
@@ -36,17 +40,20 @@ public class ServerConsolePanel extends JPanel {
     private final List<String> commandHistory = new ArrayList<>();
     private int historyIndex = -1;
 
-    public ServerConsolePanel(ServerHostManager hostManager) {
+    public ServerConsolePanel(ServerHostManager hostManager, LocaleManager localeManager) {
         setLayout(new BorderLayout(0, Scale.px(6)));
         setBackground(CustomColors.INTERFACE_MAINPANE_BACKGROUND);
 
         logArea = new JTextArea();
         logArea.setEditable(false);
         logArea.setFont(Fonts.getFont("code", 11.0f, Font.PLAIN));
-        logArea.setBackground(new Color(0x13, 0x13, 0x15));
+        logArea.setBackground(CustomColors.INTERFACE_MAINPANE_SUBBACKGROUND);
         logArea.setForeground(new Color(0xDD, 0xDD, 0xDD));
         logArea.setCaretColor(Color.WHITE);
         logArea.setLineWrap(false);
+        // The default caret scrolls to every appended line; scrolling is done by hand so a user who
+        // scrolled up to read is left alone.
+        ((DefaultCaret) logArea.getCaret()).setUpdatePolicy(DefaultCaret.NEVER_UPDATE);
         logArea.putClientProperty(FlatClientProperties.STYLE, "margin: 8,8,8,8");
 
         scrollPane = new JScrollPane(logArea);
@@ -61,10 +68,10 @@ public class ServerConsolePanel extends JPanel {
 
         commandField = new JTextField();
         commandField.setFont(Fonts.getFont("code", 11.5f, Font.PLAIN));
-        commandField.setBackground(new Color(0x1E, 0x1E, 0x22));
+        commandField.setBackground(CustomColors.INTERFACE_TEXTFIELD_BACKGROUND);
         commandField.setForeground(Color.WHITE);
         commandField.setCaretColor(Color.WHITE);
-        commandField.putClientProperty(FlatClientProperties.PLACEHOLDER_TEXT, "Enter command (e.g. status, help, stop)...");
+        commandField.putClientProperty(FlatClientProperties.PLACEHOLDER_TEXT, localeManager.getValue("m.server_console_placeholder"));
         commandField.putClientProperty(FlatClientProperties.STYLE, "arc: 6; margin: 4,8,4,8");
 
         commandField.addActionListener(e -> submitCommand(hostManager));
@@ -79,11 +86,17 @@ public class ServerConsolePanel extends JPanel {
             }
         });
         commandBar.add(commandField, BorderLayout.CENTER);
+        // Typing should work as soon as the screen is shown, without a click first.
+        addHierarchyListener(e -> {
+            if ((e.getChangeFlags() & java.awt.event.HierarchyEvent.SHOWING_CHANGED) != 0 && isShowing()) {
+                SwingUtilities.invokeLater(commandField::requestFocusInWindow);
+            }
+        });
 
         JPanel buttonBar = new JPanel(new BorderLayout(Scale.px(4), 0));
         buttonBar.setBackground(CustomColors.INTERFACE_MAINPANE_BACKGROUND);
 
-        sendButton = new JButton("Send");
+        sendButton = new JButton(localeManager.getValue("b.send_command"));
         sendButton.setFont(Fonts.getFont("default", 11.0f, Font.BOLD));
         sendButton.setBackground(CustomColors.INTERFACE_BUTTON_BACKGROUND);
         sendButton.setForeground(Color.WHITE);
@@ -92,7 +105,7 @@ public class ServerConsolePanel extends JPanel {
         sendButton.addActionListener(e -> submitCommand(hostManager));
         buttonBar.add(sendButton, BorderLayout.WEST);
 
-        clearButton = new JButton("Clear");
+        clearButton = new JButton(localeManager.getValue("b.clear_console"));
         clearButton.setFont(Fonts.getFont("default", 11.0f, Font.BOLD));
         clearButton.setBackground(CustomColors.INTERFACE_BUTTON_BACKGROUND);
         clearButton.setForeground(Color.WHITE);
@@ -115,6 +128,8 @@ public class ServerConsolePanel extends JPanel {
 
     public void appendLine(String line) {
         SwingUtilities.invokeLater(() -> {
+            JScrollBar bar = scrollPane.getVerticalScrollBar();
+            boolean atBottom = bar.getValue() + bar.getVisibleAmount() >= bar.getMaximum() - 40;
             logArea.append(line + "\n");
             // Trim lines if exceeded buffer
             if (logArea.getLineCount() > MAX_DOCUMENT_LINES) {
@@ -123,7 +138,9 @@ public class ServerConsolePanel extends JPanel {
                     logArea.replaceRange("", 0, endOffset);
                 } catch (Exception ignored) {}
             }
-            logArea.setCaretPosition(logArea.getDocument().getLength());
+            if (atBottom) { // don't yank the view away while the user is reading older lines
+                SwingUtilities.invokeLater(() -> bar.setValue(bar.getMaximum()));
+            }
         });
     }
 
@@ -136,10 +153,14 @@ public class ServerConsolePanel extends JPanel {
         if (text.isEmpty()) return;
 
         commandHistory.add(text);
+        if (commandHistory.size() > MAX_HISTORY) commandHistory.remove(0);
         historyIndex = commandHistory.size();
         commandField.setText("");
 
-        new Thread(() -> hostManager.sendCommand(text), "ServerCommandExec").start();
+        new Thread(() -> {
+            String answer = hostManager.sendCommand(text);
+            if (!answer.isEmpty()) appendLine(answer); // the server's own replies arrive as normal output
+        }, "ServerCommandExec").start();
     }
 
     private void navigateHistory(int delta) {

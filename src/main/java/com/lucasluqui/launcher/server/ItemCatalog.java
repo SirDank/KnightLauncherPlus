@@ -60,92 +60,47 @@ public class ItemCatalog {
         }
     }
 
+    /** One item of the kit a new knight starts with, and the slot it is worn in (-1: in the bag). */
+    record Starter(String config, int slot) {}
+
+    private static final String[] EXTRA_ARSENAL = {
+        "Weapon/Sword/Glacius", "Weapon/Sword/Gran Faust", "Weapon/Sword/Divine Avenger", "Weapon/Sword/Fang of Vog",
+        "Weapon/Handgun/Supernova", "Weapon/Handgun/Blitz Needle", "Weapon/Handgun/Argent Peacemaker",
+        "Weapon/Handgun/Sentenza", "Weapon/Bomb/Nitronome", "Weapon/Bomb/Shivermist Buster",
+        "Weapon/Bomb/Dark Briar Barrage", "Gear/Armor/Dragon Scale Mail", "Gear/Shield/Dragon Scale Shield"
+    };
+
+    /** The level every starter item has. */
+    static final int STARTER_LEVEL = 10;
+
+    /** What a new knight starts with: a worn set (helm, armor, shield, four weapons) and every weapon in the bag. */
+    static List<Starter> starterKit(SceneManager scene) {
+        List<Starter> kit = new ArrayList<>();
+        kit.add(new Starter("Gear/Armor/Chaos Cloak", 1));
+        kit.add(new Starter("Gear/Helm/Chaos Cowl", 0));
+        kit.add(new Starter("Gear/Shield/Grey Owlite Shield", 2));
+        kit.add(new Starter("Weapon/Sword/Leviathan Blade", 6));
+        kit.add(new Starter("Weapon/Sword/Combuster", 7));
+        kit.add(new Starter("Weapon/Handgun/Polaris", 8));
+        kit.add(new Starter("Weapon/Bomb/Ash of Agni", 9));
+        TreeSet<String> arsenal = new TreeSet<>(scene.getWeaponCatalog());
+        java.util.Collections.addAll(arsenal, EXTRA_ARSENAL);
+        for (Starter worn : kit) arsenal.remove(worn.config());
+        for (String path : arsenal) kit.add(new Starter(path, -1));
+        return kit;
+    }
+
+    /** Gives a player object the starter kit with fixed ids (for sessions without accounts: tests and tools). */
     public static void populateKnightInventory(PlayerObject po, SceneManager scene) {
         InstalledConfigManager manager = scene.getConfigManager();
         List<Item> allItems = new ArrayList<>();
         long currentId = 1000L;
-
-        // 1. Equipped Items:
-        // Slot 1: Armor
-        LevelItem armor = createItem(currentId++, "Gear/Armor/Chaos Cloak", 10, manager);
-        if (armor != null) {
-            allItems.add(armor);
-            po.equipment[1] = armor.VD();
+        for (Starter starter : starterKit(scene)) {
+            LevelItem item = createItem(currentId++, starter.config(), STARTER_LEVEL, manager);
+            if (item == null) continue;
+            allItems.add(item);
+            if (starter.slot() >= 0) po.equipment[starter.slot()] = item.VD();
         }
-
-        // Slot 0: Helm
-        LevelItem helm = createItem(currentId++, "Gear/Helm/Chaos Cowl", 10, manager);
-        if (helm != null) {
-            allItems.add(helm);
-            po.equipment[0] = helm.VD();
-        }
-
-        // Slot 2: Shield
-        LevelItem shield = createItem(currentId++, "Gear/Shield/Grey Owlite Shield", 10, manager);
-        if (shield != null) {
-            allItems.add(shield);
-            po.equipment[2] = shield.VD();
-        }
-
-        // Slot 6: Weapon 1 (Leviathan Blade)
-        LevelItem w1 = createItem(currentId++, "Weapon/Sword/Leviathan Blade", 10, manager);
-        if (w1 != null) {
-            allItems.add(w1);
-            po.equipment[6] = w1.VD();
-        }
-
-        // Slot 7: Weapon 2 (Combuster)
-        LevelItem w2 = createItem(currentId++, "Weapon/Sword/Combuster", 10, manager);
-        if (w2 != null) {
-            allItems.add(w2);
-            po.equipment[7] = w2.VD();
-        }
-
-        // Slot 8: Weapon 3 (Polaris)
-        LevelItem w3 = createItem(currentId++, "Weapon/Handgun/Polaris", 10, manager);
-        if (w3 != null) {
-            allItems.add(w3);
-            po.equipment[8] = w3.VD();
-        }
-
-        // Slot 9: Weapon 4 (Ash of Agni)
-        LevelItem w4 = createItem(currentId++, "Weapon/Bomb/Ash of Agni", 10, manager);
-        if (w4 != null) {
-            allItems.add(w4);
-            po.equipment[9] = w4.VD();
-        }
-
-        // 2. Extra Arsenal in Bag (Swords, Handguns, Bombs, Armor):
-        String[] extraArsenal = new String[]{
-            "Weapon/Sword/Glacius",
-            "Weapon/Sword/Gran Faust",
-            "Weapon/Sword/Divine Avenger",
-            "Weapon/Sword/Fang of Vog",
-            "Weapon/Handgun/Supernova",
-            "Weapon/Handgun/Blitz Needle",
-            "Weapon/Handgun/Argent Peacemaker",
-            "Weapon/Handgun/Sentenza",
-            "Weapon/Bomb/Nitronome",
-            "Weapon/Bomb/Shivermist Buster",
-            "Weapon/Bomb/Dark Briar Barrage",
-            "Gear/Armor/Dragon Scale Mail",
-            "Gear/Shield/Dragon Scale Shield"
-        };
-
-        TreeSet<String> arsenal = new TreeSet<>(scene.getWeaponCatalog());
-        java.util.Collections.addAll(arsenal, extraArsenal);
-        for (Item existing : allItems) {
-            if (existing != null && existing.Mx() != null) {
-                arsenal.remove(existing.Mx().getName());
-            }
-        }
-        for (String path : arsenal) {
-            LevelItem extra = createItem(currentId++, path, 10, manager);
-            if (extra != null) {
-                allItems.add(extra);
-            }
-        }
-
         po.items = new DSet<>(allItems);
         System.out.println("[ItemCatalog] Populated " + allItems.size() + " test weapons & equipment items.");
     }

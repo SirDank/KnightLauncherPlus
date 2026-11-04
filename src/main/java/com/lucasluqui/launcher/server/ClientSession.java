@@ -10,6 +10,15 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
+import java.sql.SQLException;
+import com.lucasluqui.launcher.server.db.AccountStore;
+import com.lucasluqui.launcher.server.db.KnightStore;
+import com.threerings.projectx.data.ProjectXCredentials;
+import com.lucasluqui.launcher.server.db.MailStore;
+import com.threerings.presents.dobj.EntryAddedEvent;
+import com.threerings.presents.dobj.EntryRemovedEvent;
+import com.threerings.projectx.uplink.data.MailType;
+import com.threerings.projectx.uplink.data.NewMailInfo;
 import com.google.common.collect.Sets;
 import com.google.common.collect.Maps;
 import com.threerings.config.ConfigReference;
@@ -57,14 +66,45 @@ import com.threerings.whirled.zone.data.SceneSummary;
 import com.threerings.whirled.zone.data.ZoneMarshaller;
 import com.threerings.whirled.zone.data.ZoneSummary;
 
-public class ClientSession implements Runnable {
+public class ClientSession implements Runnable, SessionContext {
     public static final int LOCATION_SERVICE_CODE = 1;
     public static final int KNIGHT_SERVICE_CODE = 2;
     public static final int PROJECTX_ZONE_SERVICE_CODE = 3;
     public static final int CHAT_SERVICE_CODE = 4;
+    /** Speaking in a scene: the scene objects offer it as service 20. */
+    static final int SPEAK_SCENE_CODE = SceneManager.SPEAK_SERVICE_CODE;
+    static final int FEED_SERVICE_CODE = 43;
+    static final int SOCIAL_SERVICE_CODE = 42;
+    static final int BOARD_SERVICE_CODE = 45;
+    /** The admin service of the game, last in CLIENT_SERVICES. */
+    static final int ADMIN_SERVICE_CODE = 55;
+    static final int MISSION_SERVICE_CODE = 48;
     public static final int SCENE_SERVICE_CODE = 5;
     public static final int ZONE_SERVICE_CODE = 6;
     public static final int ITEM_SERVICE_CODE = 7;
+    // Services the client looks up (Client.getService) while building its windows. A missing one throws in its
+    // frame loop forever (UplinkService did, leaving the loading screen at 82%). Each gets the generic reply.
+    static final String[] CLIENT_SERVICES = {
+        "com.threerings.projectx.uplink.data.UplinkMarshaller",
+        "com.threerings.projectx.guild.data.GuildMarshaller",
+        "com.threerings.projectx.social.data.SocialMarshaller",
+        "com.threerings.projectx.social.data.FeedMarshaller",
+        "com.threerings.projectx.auction.data.AuctionMarshaller",
+        "com.threerings.projectx.board.data.BoardMarshaller",
+        "com.threerings.projectx.billing.data.BillingMarshaller",
+        "com.threerings.projectx.love.data.LoveMarshaller",
+        "com.threerings.projectx.mission.data.MissionMarshaller",
+        "com.threerings.projectx.partner.data.SteamMarshaller",
+        "com.threerings.projectx.pvp.data.PvpMarshaller",
+        "com.threerings.projectx.data.InvitationMarshaller",
+        "com.threerings.projectx.data.EventLogMarshaller",
+        "com.threerings.projectx.data.ProjectXSupportMarshaller",
+        "com.threerings.projectx.sprites.data.BattleSpriteMarshaller",
+        "com.threerings.projectx.admin.data.ProjectXAdminMarshaller"
+    };
+    private static final int CLIENT_SERVICE_CODE_BASE = 40;
+    /** The mail service is the first entry of CLIENT_SERVICES. */
+    static final int UPLINK_SERVICE_CODE = CLIENT_SERVICE_CODE_BASE;
     public static final int PARTY_SERVICE_CODE = 30;
     public static final int PARTY_SPEAK_SERVICE_CODE = 31;
 
@@ -73,6 +113,22 @@ public class ClientSession implements Runnable {
     private static final String ZONE_RECEIVER_CODE = "2d900cf54355111b4bb4befcdff42b82";
     private static final short LEGACY_ZONE_RECEIVER_ID = 2;
 
+    // Well clear of the fixed scene OIDs (500/501), the server/admin OIDs (10/60) and each other.
+    private static final int CLIENT_OID_BASE = 10_000;
+
+    private volatile boolean authenticated;
+    private final ServerServices services;
+    private AccountStore.Account account;
+    private List<KnightStore.Knight> accountKnights = java.util.Collections.emptyList();
+    private final LoginHandler login = new LoginHandler(this);
+    private final MailHandler mail = new MailHandler(this);
+    private final KnightHandler knight = new KnightHandler(this, this.mail);
+    private final ChatHandler chat = new ChatHandler(this);
+    private final SocialHandler social = new SocialHandler(this);
+    private final KnightInventory inventory = new KnightInventory(this);
+    private final PartyHandler partyHandler = new PartyHandler(this);
+    private final InvocationRouter router = new InvocationRouter();
+    private final java.util.Set<Integer> loggedInvocations = new java.util.HashSet<>();
     private final SocketChannel channel;
     private final DObjectManager dobjMgr;
     private final SceneManager sceneMgr;
@@ -89,6 +145,7 @@ public class ClientSession implements Runnable {
     private ServerObject serverObject;
     private AdminObject adminObject;
     private PartyObject partyObject;
+    private Party party;
 
     private PlaceConfig currentPlaceConfig;
     private int currentSceneId = SceneManager.DEFAULT_SCENE_ID;
@@ -158,21 +215,43 @@ public class ClientSession implements Runnable {
         }
     }
 
+    /** A session without accounts (tests and tools): every login is accepted and plays a fixed knight. */
     public ClientSession(SocketChannel channel, DObjectManager dobjMgr, SceneManager sceneMgr,
             SceneNetworkManager sceneNetwork, MovementConfig movementConfig,
             int connectionId, String serverVersion, int serverPort,
             Consumer<ClientSession> onClosed) {
+        this(channel, dobjMgr, sceneMgr, sceneNetwork, movementConfig, connectionId, serverVersion, serverPort,
+            onClosed, null);
+    }
+
+    /** @param services Accounts, knights, mail and the server key; null for a session without accounts. */
+    public ClientSession(SocketChannel channel, DObjectManager dobjMgr, SceneManager sceneMgr,
+            SceneNetworkManager sceneNetwork, MovementConfig movementConfig,
+            int connectionId, String serverVersion, int serverPort,
+            Consumer<ClientSession> onClosed, ServerServices services) {
+        this.services = services;
         this.channel = channel;
         this.dobjMgr = dobjMgr;
         this.sceneMgr = sceneMgr;
         this.sceneNetwork = sceneNetwork;
         this.movementConfig = movementConfig;
         this.connectionId = connectionId;
-        this.clientOid = 100 + connectionId;
+        this.clientOid = CLIENT_OID_BASE + connectionId;
         this.serverVersion = serverVersion;
         this.serverPort = serverPort;
         this.onClosed = onClosed;
         this.currentPlaceConfig = sceneMgr.getHavenConfig();
+        this.router.register(KNIGHT_SERVICE_CODE, this.knight);
+        this.router.register(UPLINK_SERVICE_CODE, this.mail);
+        this.router.register(CHAT_SERVICE_CODE, this.chat);
+        this.router.register(SPEAK_SCENE_CODE, this.chat.scene());
+        this.router.register(PARTY_SPEAK_SERVICE_CODE, this.chat.party());
+        this.router.register(FEED_SERVICE_CODE, new FeedHandler(this));
+        this.router.register(SOCIAL_SERVICE_CODE, this.social);
+        this.router.register(PARTY_SERVICE_CODE, this.partyHandler);
+        this.router.register(BOARD_SERVICE_CODE, new BoardStubHandler(this));
+        this.router.register(ADMIN_SERVICE_CODE, new AdminHandler(this));
+        this.router.register(MISSION_SERVICE_CODE, new BoardStubHandler(this));
     }
 
     public int getConnectionId() {
@@ -196,12 +275,7 @@ public class ClientSession implements Runnable {
             this.outStream = new w(this.sink);
             startWriter();
 
-            // Initialize Objects
-            initServerObject();
-            initAdminObject();
-            initPlayer();
-            initParty();
-
+            // Objects are created in handleAuth, so an unauthenticated connection costs only its threads.
             // Message Loop
             while (running && channel.isOpen()) {
                 while (running && !source.a(channel)) {
@@ -231,11 +305,20 @@ public class ClientSession implements Runnable {
 
         this.playerObject = new PlayerObject();
         this.playerObject.cH(this.clientOid);
-        this.playerObject.playerId = connectionId;
-        this.playerObject.knightId = connectionId;
-        String knightName = this.connectionId == 1
-            ? "HeroKnight" : "HeroKnight" + this.connectionId;
-        this.playerObject.username = new Name(knightName);
+        String knightName;
+        if (this.account != null && !this.accountKnights.isEmpty()) {
+            // Signed in: the account's first knight is the one in play until the player picks another.
+            KnightStore.Knight selected = this.accountKnights.get(0);
+            knightName = selected.name;
+            this.playerObject.playerId = (int)this.account.id;
+            this.playerObject.knightId = (int)selected.id;
+            this.playerObject.username = new Name(this.account.username);
+        } else {
+            knightName = this.connectionId == 1 ? "HeroKnight" : "HeroKnight" + this.connectionId;
+            this.playerObject.playerId = connectionId;
+            this.playerObject.knightId = connectionId;
+            this.playerObject.username = new Name(knightName);
+        }
         this.playerObject.knight = new Name(knightName);
         // Packed ColorPository id: class 1 (player), color 1 (magenta).
         // Zero has no ColorRecord and crashes the combat KnightSprite while
@@ -248,7 +331,7 @@ public class ClientSession implements Runnable {
         // Unlock 2/3/4/5-star equipment without granting unrelated progress bits.
         this.playerObject.progressFlags |= 64 | 128 | 256 | 512;
         this.playerObject.prestige = 50000;
-        this.playerObject.crowns = 999999;
+        this.playerObject.crowns = KnightInventory.DEFAULT_CROWNS;
         this.playerObject.energy = 10000;
         this.playerObject.showEnergy = true;
         this.playerObject.queuePosition = 0;
@@ -260,7 +343,13 @@ public class ClientSession implements Runnable {
         this.playerObject.achievements = new DSet<>();
         this.playerObject.gifts = new DSet<>();
         this.playerObject.friends = new DSet<>();
-        this.playerObject.newMailInfo = new DSet<>();
+        this.social.load();
+        try {
+            this.playerObject.newMailInfo = this.mail.newMailEntries();
+        } catch (SQLException e) {
+            System.out.println("[ClientSession-" + connectionId + "][MAIL][WARNING] could not load new mail: " + e.getMessage());
+            this.playerObject.newMailInfo = new DSet<>();
+        }
         this.playerObject.notifications = new DSet<>();
         this.playerObject.sprites = new DSet<>();
         this.playerObject.harnesses = new DSet<>();
@@ -283,23 +372,29 @@ public class ClientSession implements Runnable {
         this.playerObject.homeTown = haven;
         this.playerObject.lastTownSceneId = SceneManager.DEFAULT_SCENE_ID;
         this.playerObject.zoneId = 1;
-        this.playerObject.partyOid = 1_000 + this.connectionId;
+        this.playerObject.partyOid = 0; // set when the party is made (initParty)
 
         // Populate gear before composing the character model. The model
         // reference includes the currently equipped armor, helm and shield.
         ItemCatalog.populateKnightInventory(this.playerObject, this.sceneMgr);
+        this.knight.loadState(); // a signed-in knight's saved crowns and gear replace the defaults
 
-        // Character Select Card Setup
-        AvailableKnight knight = new AvailableKnight(
-            1,
-            this.playerObject.knight,
-            10,
-            "Developers",
-            3600,
-            this.sceneMgr.createPlayerModel(this.playerObject),
-            Sets.newHashSet()
-        );
-        this.playerObject.availableKnights = new AvailableKnight[]{ knight };
+        // Character Select Card Setup: one card per knight of the account (a single fixed one without accounts).
+        if (this.account != null && !this.accountKnights.isEmpty()) {
+            AvailableKnight[] cards = this.knight.cards();
+            this.playerObject.availableKnights = cards;
+        } else {
+            AvailableKnight knight = new AvailableKnight(
+                1,
+                this.playerObject.knight,
+                10,
+                "Developers",
+                3600,
+                this.sceneMgr.createPlayerModel(this.playerObject),
+                Sets.newHashSet()
+            );
+            this.playerObject.availableKnights = new AvailableKnight[]{ knight };
+        }
 
         // Register with DObjectManager
         this.dobjMgr.register(this.playerObject);
@@ -310,35 +405,32 @@ public class ClientSession implements Runnable {
 
     @SuppressWarnings("unchecked")
     private void initParty() {
-        this.partyObject = new PartyObject();
-        this.partyObject.cH(this.playerObject.partyOid);
+        this.party = this.sceneMgr.parties().create();
+        this.party.add(this);
+        this.partyObject = this.party.object;
+        this.playerObject.partyOid = this.party.oid();
+        System.out.println("[ClientSession-" + connectionId + "][PARTY] initialized oid=" + this.party.oid());
+    }
 
-        PartyMarshaller partyService = new PartyMarshaller();
-        partyService.a(this.partyObject.xL(), PARTY_SERVICE_CODE, null);
-        this.partyObject.partyService = partyService;
-        com.threerings.crowd.chat.data.SpeakMarshaller speakService =
-            new com.threerings.crowd.chat.data.SpeakMarshaller();
-        speakService.a(this.partyObject.xL(), PARTY_SPEAK_SERVICE_CODE, null);
-        this.partyObject.speakService = speakService;
+    @Override
+    public Party party() {
+        return this.party;
+    }
 
-        PartyMember member = new PartyMember(
-            this.sceneMgr.getConfigManager(), this.playerObject, 0, false);
-        this.partyObject.members = new DSet<>(Collections.singletonList(member));
-        this.partyObject.health = new DSet<>(Collections.singletonList(
-            new Health(this.clientOid, 100, 0)));
-        Status status = new Status(this.clientOid, false);
-        status.conditions = new ConfigReference[0];
-        status.expires = new int[0];
-        this.partyObject.status = new DSet<>(Collections.singletonList(status));
-        this.partyObject.visited = Sets.newHashSet(SceneManager.TRAINING_SCENE_ID);
-        this.partyObject.spawn = new com.threerings.math.Vector2f(
-            SceneManager.TRAINING_SPAWN_X, SceneManager.TRAINING_SPAWN_Y);
-        this.partyObject.depth = 0;
-        this.partyObject.hasPickups = true;
-        this.dobjMgr.register(this.partyObject);
-        System.out.println("[ClientSession-" + connectionId + "][PARTY] initialized"
-            + " oid=" + this.partyObject.xL()
-            + " members=1 health=100 weapons=" + member.weapons.length);
+    /** Leaves the current party for another, and tells the game (which then subscribes to the new party object). */
+    @Override
+    public synchronized void joinParty(Party target) throws IOException {
+        Party old = this.party;
+        if (old == target) return;
+        if (old != null) {
+            old.remove(this);
+            if (old.size() == 0) this.sceneMgr.parties().dissolve(old);
+        }
+        target.add(this);
+        this.party = target;
+        this.partyObject = target.object;
+        this.playerObject.partyOid = target.oid();
+        sendMessage(new EventNotification(new AttributeChangedEvent(this.clientOid, "partyOid", Integer.valueOf(target.oid()))));
     }
 
     private void initServerObject() {
@@ -391,8 +483,70 @@ public class ClientSession implements Runnable {
         this.dobjMgr.registerIfAbsent(this.adminObject);
     }
 
+    // ---- SessionContext: what the service handlers use of this session.
+
+    @Override public ServerServices services() { return this.services; }
+    @Override public int connectionId() { return this.connectionId; }
+    @Override public int clientOid() { return this.clientOid; }
+    @Override public PlayerObject player() { return this.playerObject; }
+    @Override public SceneManager scenes() { return this.sceneMgr; }
+    @Override public AccountStore.Account account() { return this.account; }
+    @Override public void setAccount(AccountStore.Account account) { this.account = account; }
+    @Override public List<KnightStore.Knight> knights() { return this.accountKnights; }
+    @Override public void setKnights(List<KnightStore.Knight> knights) { this.accountKnights = knights; }
+    @Override public void send(Object message) throws IOException { sendMessage(message); }
+
+    @Override
+    public void failRequest(short reqId, String messageKey) throws IOException {
+        sendMessage(new EventNotification(new InvocationResponseEvent(this.clientOid, reqId, (byte)0, new Object[]{messageKey})));
+    }
+
+    @Override
+    public void confirm(short reqId, InvocationMarshaller.ListenerMarshaller listener) throws IOException {
+        sendDefaultListenerResponse(reqId, listener);
+    }
+
+    @Override
+    public void respond(short reqId, Object... values) throws IOException {
+        sendMessage(new EventNotification(new InvocationResponseEvent(this.clientOid, reqId, (byte)1, values)));
+    }
+
+    @Override public int currentPlaceOid() { return this.currentPlaceOid; }
+    @Override public int partyOid() { return this.partyObject == null ? -1 : this.partyObject.xL(); }
+
+    @Override
+    public java.util.Collection<ClientSession> onlineSessions() {
+        return this.services == null ? java.util.Collections.emptyList() : this.services.online.values();
+    }
+
+    @Override
+    public ClientSession onlineKnight(long knightId) {
+        for (ClientSession other : this.services.online.values()) {
+            if (other.playerObject != null && other.playerObject.knightId == knightId) return other;
+        }
+        return null;
+    }
+
+    MailHandler mail() { return this.mail; }
+    @Override public ClientSession self() { return this; }
+    @Override public SocialHandler social() { return this.social; }
+    @Override public KnightInventory inventory() { return this.inventory; }
+    @Override public PartyHandler partyHandler() { return this.partyHandler; }
+
+    public boolean isAuthenticated() {
+        return this.authenticated;
+    }
+
     private void handleMessage(Object msg) throws Exception {
-        if (msg instanceof AuthRequest) {
+        if (!this.authenticated && !(msg instanceof AuthRequest)) {
+            System.out.println("[ClientSession-" + connectionId + "] Dropping unauthenticated "
+                + msg.getClass().getSimpleName());
+            running = false;
+            return;
+        }
+        if (msg instanceof SecureRequest) {
+            this.login.handleSecure((SecureRequest)msg); // before AuthRequest: it is one
+        } else if (msg instanceof AuthRequest) {
             handleAuth((AuthRequest)msg);
         } else if (msg instanceof SubscribeRequest) {
             handleSubscribe((SubscribeRequest)msg);
@@ -459,6 +613,21 @@ public class ClientSession implements Runnable {
     }
 
     private void handleAuth(AuthRequest req) throws Exception {
+        if (this.authenticated) {
+            return;
+        }
+        if (this.services != null && !this.login.signIn(req)) {
+            return; // refused: the reply is on its way and the session is closing
+        }
+        initServerObject();
+        initAdminObject();
+        initPlayer();
+        initParty();
+        this.authenticated = true;
+        if (this.services != null && this.account != null) {
+            this.services.online.put(this.account.id, this);
+            this.social.announce(false);
+        }
         String requestedVersion = readRequestedVersion(req);
         System.out.println("[ClientSession-" + connectionId + "][AUTH] request received"
             + " requestedVersion=" + requestedVersion
@@ -472,8 +641,10 @@ public class ClientSession implements Runnable {
         ProjectXAuthResponseData authData = new ProjectXAuthResponseData();
         authData.code = "success";
         authData.ident = "spiral";
-        authData.sessionId = "session-" + connectionId + "-" + System.currentTimeMillis();
-        authData.authName = this.playerObject.username;
+        authData.sessionId = this.account != null
+            ? this.services.sessions.issue(this.account.id, this.account.username)
+            : "session-" + connectionId + "-" + System.currentTimeMillis();
+        authData.authName = this.account != null ? new Name(this.account.username) : this.playerObject.username;
         sendMessage(new AuthResponse(authData));
         System.out.println("[ClientSession-" + connectionId + "][AUTH] success authName=" + authData.authName
             + " clientOid=" + clientOid);
@@ -528,6 +699,19 @@ public class ClientSession implements Runnable {
         whirledZoneMarsh.a(this.clientOid, ZONE_SERVICE_CODE, null);
         bd.services.add(whirledZoneMarsh);
 
+        int serviceCode = CLIENT_SERVICE_CODE_BASE;
+        for (String name : CLIENT_SERVICES) {
+            try {
+                InvocationMarshaller<?> marshaller =
+                    (InvocationMarshaller<?>)Class.forName(name).getDeclaredConstructor().newInstance();
+                marshaller.a(this.clientOid, serviceCode++, null);
+                bd.services.add(marshaller);
+            } catch (ReflectiveOperationException | RuntimeException e) {
+                System.out.println("[ClientSession-" + connectionId + "][BOOTSTRAP][WARNING] service " + name
+                    + " unavailable: " + e);
+            }
+        }
+
         sendMessage(new BootstrapNotification(bd));
         // Presents defaults to ten outgoing messages per second. At a 20 ms
         // input cadence that queues seconds of stale controls and scene ACKs.
@@ -539,8 +723,13 @@ public class ClientSession implements Runnable {
         sendMessage(new UpdateThrottleMessage(messagesPerSecond));
         System.out.println("[ClientSession-" + connectionId
             + "][NETWORK] client send budget=" + messagesPerSecond + " messages/sec");
-        System.out.println("[ClientSession-" + connectionId + "][BOOTSTRAP] sent services="
-            + "Location,Knight,ProjectXZone,Chat,Scene,Zone");
+        StringBuilder sent = new StringBuilder();
+        for (InvocationMarshaller<?> marshaller : bd.services) {
+            if (sent.length() > 0) sent.append(',');
+            sent.append(marshaller.getClass().getSimpleName().replace("Marshaller", ""));
+        }
+        System.out.println("[ClientSession-" + connectionId + "][BOOTSTRAP] sent " + bd.services.size()
+            + " services=" + sent);
         System.out.println("[ClientSession-" + connectionId + "][BOOTSTRAP] waiting for client subscription to OID=" + clientOid);
     }
 
@@ -592,7 +781,10 @@ public class ClientSession implements Runnable {
             int invCode = invReq.ye();
             int methodId = invReq.yc();
             Object[] args = (argsField != null) ? (Object[])argsField.get(invReq) : new Object[0];
-            System.out.println("[ClientSession-" + connectionId + "] InvocationRequest: code=" + invCode + ", method=" + methodId + ", args=" + Arrays.toString(args));
+            // Once per distinct call: the rest repeat the same line many times a second.
+            if (this.loggedInvocations.add(invCode * 1000 + methodId)) {
+                System.out.println("[ClientSession-" + connectionId + "] InvocationRequest: code=" + invCode + ", method=" + methodId + ", args=" + Arrays.toString(args));
+            }
 
             // TudeySceneMarshaller.adc(): once the place object is installed,
             // the client asks for an initial SceneDeltaEvent. That first delta
@@ -603,17 +795,35 @@ public class ClientSession implements Runnable {
                 return;
             }
 
+            // Calls that expect no answer (speaking, going away) carry no listener.
+            boolean answered = false;
+            for (Object arg : args) answered |= arg instanceof InvocationMarshaller.ListenerMarshaller;
+            if (!answered && this.router.route(invCode, methodId, args, (short)0, null)) {
+                return;
+            }
+
             for (Object arg : args) {
                 if (arg instanceof InvocationMarshaller.ListenerMarshaller) {
                     InvocationMarshaller.ListenerMarshaller lm = (InvocationMarshaller.ListenerMarshaller)arg;
                     short reqId = lm.requestId;
 
-                    // Client ItemMarshaller method 9: move item to location/slot.
-                    if (invCode == ITEM_SERVICE_CODE && methodId == 9) {
+                    // Services with their own handler (knights, mail).
+                    if (this.router.route(invCode, methodId, args, reqId, lm)) {
+                        return;
+                    }
+
+                    // Client ItemMarshaller method 9: move item to location/slot; method 3: the menu's "Equip as..." (item, slot).
+                    if (invCode == ITEM_SERVICE_CODE && (methodId == 9 || methodId == 3)) {
                         try {
+                            if (methodId == 3) {
+                                moveEquipment(((Number)args[0]).longValue(),
+                                    com.threerings.projectx.item.data.ItemCodes.Location.EQUIPMENT,
+                                    ((Number)args[1]).intValue());
+                            } else {
                             moveEquipment(((Number)args[0]).longValue(),
                                 (com.threerings.projectx.item.data.ItemCodes.Location)args[1],
                                 ((Number)args[2]).intValue());
+                            }
                             sendDefaultListenerResponse(reqId, lm);
                         } catch (IllegalArgumentException error) {
                             sendMessage(new EventNotification(new InvocationResponseEvent(
@@ -725,6 +935,7 @@ public class ClientSession implements Runnable {
     private synchronized void moveEquipment(long itemId,
             com.threerings.projectx.item.data.ItemCodes.Location location,int slot) throws IOException {
         this.sceneMgr.moveEquipment(this.playerObject,itemId,location,slot);
+        this.knight.saveState();
         sendMessage(new EventNotification(new AttributeChangedEvent(
             this.clientOid,"equipment",this.playerObject.equipment.clone())));
         sendMessage(new EventNotification(new AttributeChangedEvent(
@@ -738,10 +949,7 @@ public class ClientSession implements Runnable {
                 this.sceneMgr.createPlayerModel(this.playerObject),new Object[0]));
             this.authoritativeActor.init(this.sceneMgr.getConfigManager());
         }
-        PartyMember member=new PartyMember(this.sceneMgr.getConfigManager(),this.playerObject,0,false);
-        this.partyObject.members=new DSet<>(Collections.singletonList(member));
-        sendMessage(new EventNotification(new AttributeChangedEvent(
-            this.partyObject.xL(),"members",this.partyObject.members)));
+        this.party.refresh(this);
         System.out.println("[EQUIPMENT] item="+itemId+" location="+location+" slot="+slot);
     }
 
@@ -903,7 +1111,7 @@ public class ClientSession implements Runnable {
             }
         }
 
-        if (this.currentSceneId == SceneManager.TRAINING_SCENE_ID
+        if (this.sceneMgr.isCombatScene(this.currentSceneId)
                 && this.authoritativeActor instanceof Dungeoneer) {
             // Combat activities expire on the authoritative scene clock even
             // while the player is standing still and sends no new frames.
@@ -950,7 +1158,7 @@ public class ClientSession implements Runnable {
                     Math.min((long)targetSceneTimestamp, translated));
             }
 
-            boolean combatFrame = this.currentSceneId == SceneManager.TRAINING_SCENE_ID
+            boolean combatFrame = this.sceneMgr.isCombatScene(this.currentSceneId)
                 && this.authoritativeActor instanceof Dungeoneer && frame instanceof DungeonInputFrame;
             if (!combatFrame) {
                 this.authoritativeActor.ah(frame.tA());
@@ -964,7 +1172,7 @@ public class ClientSession implements Runnable {
             if (combatFrame) {
                 Dungeoneer pawn = (Dungeoneer)this.authoritativeActor;
                 if (this.vanillaCombat == null) this.vanillaCombat = new VanillaCombatController(
-                    this.sceneMgr,this.playerObject,pawn,frameSceneTimestamp-1);
+                    this.sceneMgr,this.playerObject,pawn,frameSceneTimestamp-1,this.currentSceneId);
                 DungeonInputFrame dungeon = (DungeonInputFrame)frame;
                 int actionTimestamp = (int)Math.max(Integer.MIN_VALUE,(long)frameSceneTimestamp
                     - Math.max(0L,(long)frameTimestamp-dungeon.Nk()));
@@ -1026,7 +1234,7 @@ public class ClientSession implements Runnable {
                 + " flags=0x" + Integer.toHexString(latestInputFlags)
                 + " moving=" + ((latestInputFlags & 1) != 0)
                 + " action=" + ((latestInputFlags & 4) != 0)
-                + " weapon=" + (this.currentSceneId == SceneManager.TRAINING_SCENE_ID
+                + " weapon=" + (this.sceneMgr.isCombatScene(this.currentSceneId)
                     ? (this.vanillaCombat==null?1:this.vanillaCombat.weaponIndex()+1) : 0)
                 + " activity=" + this.authoritativeActor.adX()
                 + " position=(" + this.authoritativeActor.tz().x
@@ -1070,7 +1278,7 @@ public class ClientSession implements Runnable {
     }
 
     private void clampCombatPosition() {
-        if (!this.movementConfig.clampToMapBounds) return;
+        if (!this.movementConfig.clampToMapBounds || this.sceneMgr.isGenerated(this.currentSceneId)) return;
         float x=clamp(this.authoritativeActor.tz().x,this.movementConfig.minX,this.movementConfig.maxX);
         float y=clamp(this.authoritativeActor.tz().y,this.movementConfig.minY,this.movementConfig.maxY);
         if (x!=this.authoritativeActor.tz().x || y!=this.authoritativeActor.tz().y) {
@@ -1097,7 +1305,7 @@ public class ClientSession implements Runnable {
                 || this.currentSceneId != sceneId) {
             return null;
         }
-        if (sceneId == SceneManager.TRAINING_SCENE_ID
+        if (this.sceneMgr.isCombatScene(sceneId)
                 && this.authoritativeActor instanceof Dungeoneer) {
             if (this.vanillaCombat != null) {
                 this.vanillaCombat.tick(timestamp);
@@ -1345,6 +1553,35 @@ public class ClientSession implements Runnable {
                 || this.inputPacketCount % this.movementConfig.logEveryPackets == 0);
     }
 
+    int currentSceneId() {
+        return this.currentSceneId;
+    }
+
+    /** Tells the game to move to a scene (it then asks for it, and {@link #activateScene} runs). */
+    void travelTo(int sceneId) throws IOException {
+        this.portalTransitionPending = true;
+        short zoneReceiverId = findReceiverId(ZONE_RECEIVER_CODE, LEGACY_ZONE_RECEIVER_ID);
+        sendMessage(new EventNotification(new InvocationNotificationEvent(this.clientOid, zoneReceiverId, 1,
+            new Object[]{ Integer.valueOf(1), Integer.valueOf(sceneId) })));
+        System.out.println("[ClientSession-" + connectionId + "][WORLD] sent to scene " + sceneId);
+        // A game that never follows (it could not load the map) must not stay locked out of the portals.
+        this.sceneMgr.dungeons().after(20_000, () -> {
+            if (this.currentSceneId != sceneId) this.portalTransitionPending = false;
+        });
+    }
+
+    /** Puts the player's knight at a spot of the scene they are in. */
+    synchronized void teleport(float x, float y) {
+        if (this.authoritativeActor == null) return;
+        this.authoritativeActor.tz().s(x, y);
+        this.authoritativeActor.setDirty(true);
+    }
+
+    /** Gives crowns (a kill's reward) and tells the game. */
+    void addCrowns(int amount) {
+        if (amount > 0) this.inventory.addCrowns(amount);
+    }
+
     private void maybeTriggerPortal(float previousX, float previousY) throws IOException {
         if (this.portalTransitionPending || this.authoritativeActor == null) {
             return;
@@ -1385,11 +1622,16 @@ public class ClientSession implements Runnable {
         if (sceneId != previousSceneId) {
             this.sceneReady = false;
             this.sceneNetwork.leave(previousSceneId, this);
+            this.sceneMgr.dungeons().playerLeft(previousSceneId, this);
         }
         this.currentSceneId = sceneId;
         this.currentPlaceOid = placeOid;
         this.currentPlaceConfig = config;
-        if (sceneId == SceneManager.TRAINING_SCENE_ID) {
+        SceneInstance entered = this.sceneMgr.sceneInstance(sceneId);
+        if (entered != null && !Float.isNaN(entered.spawnX)) {
+            this.currentSpawnX = entered.spawnX;
+            this.currentSpawnY = entered.spawnY;
+        } else if (sceneId == SceneManager.TRAINING_SCENE_ID) {
             this.currentSpawnX = SceneManager.TRAINING_SPAWN_X;
             this.currentSpawnY = SceneManager.TRAINING_SPAWN_Y;
         } else if (previousSceneId == SceneManager.TRAINING_SCENE_ID) {
@@ -1405,6 +1647,7 @@ public class ClientSession implements Runnable {
             if (sceneId != previousSceneId) {
                 this.sceneNetwork.broadcastOccupants(previousSceneId);
                 this.sceneNetwork.broadcastOccupants(sceneId);
+                this.social.announce(false);
             }
         }
         if (sceneId != previousSceneId) {
@@ -1429,6 +1672,7 @@ public class ClientSession implements Runnable {
             this.timingOnlyTicks = 0;
             this.portalTransitionPending = false;
             resetCombatState();
+            this.sceneMgr.dungeons().playerEntered(sceneId, this);
             System.out.println("[ClientSession-" + connectionId + "][WORLD] activated"
                 + " sceneId=" + sceneId + " placeOid=" + placeOid
                 + " config=" + config.getClass().getSimpleName()
@@ -1456,7 +1700,16 @@ public class ClientSession implements Runnable {
         training.name = "Advanced Training Hall";
         training.neighbors = new int[]{ SceneManager.DEFAULT_SCENE_ID };
         training.neighborDirs = new int[]{ 0 };
-        zone.scenes = new SceneSummary[]{ scene, training };
+        if (this.sceneMgr.isGenerated(this.currentSceneId)) {
+            SceneSummary level = new SceneSummary();
+            level.sceneId = this.currentSceneId;
+            level.name = "Dungeon";
+            level.neighbors = new int[0];
+            level.neighborDirs = new int[0];
+            zone.scenes = new SceneSummary[]{ scene, training, level };
+        } else {
+            zone.scenes = new SceneSummary[]{ scene, training };
+        }
         return zone;
     }
 
@@ -1483,7 +1736,7 @@ public class ClientSession implements Runnable {
         return fallback;
     }
 
-    private static Name findNameArgument(Object[] args) {
+    static Name findNameArgument(Object[] args) {
         for (Object arg : args) {
             if (arg instanceof Name) {
                 return (Name)arg;
@@ -1554,16 +1807,23 @@ public class ClientSession implements Runnable {
 
     public void close() {
         running = false;
+        if (this.services != null && this.account != null) {
+            this.services.online.remove(this.account.id, this);
+        }
         if (cleanedUp.compareAndSet(false, true)) {
             this.sceneReady = false;
-            this.sceneNetwork.leave(this.currentSceneId, this);
-            sceneMgr.removePlayer(playerObject);
-            this.sceneNetwork.broadcastOccupants(this.currentSceneId);
             if (playerObject != null) {
+                this.knight.saveState();
+                this.social.announce(true);
+                this.sceneNetwork.leave(this.currentSceneId, this);
+                sceneMgr.dungeons().playerLeft(this.currentSceneId, this);
+                sceneMgr.removePlayer(playerObject);
+                this.sceneNetwork.broadcastOccupants(this.currentSceneId);
                 dobjMgr.unregister(playerObject.xL());
             }
-            if (partyObject != null) {
-                dobjMgr.unregister(partyObject.xL());
+            if (party != null) {
+                party.remove(this);
+                if (party.size() == 0) sceneMgr.parties().dissolve(party);
             }
             if (this.onClosed != null) {
                 this.onClosed.accept(this);

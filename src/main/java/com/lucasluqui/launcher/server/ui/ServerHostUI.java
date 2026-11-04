@@ -10,8 +10,6 @@ import javax.swing.JButton;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
-import javax.swing.JTextField;
-import javax.swing.SwingConstants;
 
 import com.formdev.flatlaf.FlatClientProperties;
 import com.google.inject.Inject;
@@ -32,29 +30,28 @@ import jiconfont.icons.font_awesome.FontAwesome;
 public class ServerHostUI extends BaseUI {
     private static final Color COLOR_RUNNING = new Color(0x4C, 0xAF, 0x50);
     private static final Color COLOR_STOPPED = new Color(0xE5, 0x39, 0x35);
-    private static final Color COLOR_ACCENT = new Color(0x3B, 0x82, 0xF6);
+    private static final Color COLOR_ACCENT = CustomColors.ACCENT;
 
     @Inject private ServerEventHandler eventHandler;
     @Inject private ServerHostManager hostManager;
     @Inject private LocaleManager _localeManager;
 
-    private JLabel titleLabel;
     private JLabel statusBadge;
     private JLabel statusText;
     private JLabel uptimeText;
     private JLabel playersText;
-    private JTextField portField;
     private JLabel lanAddressText;
     private JButton startButton;
     private JButton stopButton;
     private JButton restartButton;
     private JButton connectButton;
+    private JButton settingsButton;
     private JButton copyLanButton;
     private ServerConsolePanel consolePanel;
 
     @Inject
     public ServerHostUI() {
-        super(800, 550, false);
+        super(800, 470, false); // what fits beside the launcher's sidebar (see LauncherApp.showUI)
     }
 
     @Override
@@ -88,28 +85,22 @@ public class ServerHostUI extends BaseUI {
         panel = (JPanel) guiFrame.getContentPane();
         panel.setBorder(BorderFactory.createEmptyBorder(0, Scale.px(20), Scale.px(16), Scale.px(20)));
 
-        // Top Section: Title + Status Card + Control Toolbar
+        // Top Section: Status Card + Control Toolbar
         JPanel topContainer = new JPanel(new BorderLayout(0, Scale.px(8)));
         topContainer.setBackground(CustomColors.INTERFACE_MAINPANE_BACKGROUND);
 
-        // Header Title
-        titleLabel = new JLabel(_localeManager.getValue("t.server_hosting"));
-        titleLabel.setFont(Fonts.getFont("default", 26.0f, Font.BOLD));
-        titleLabel.setForeground(Color.WHITE);
-        titleLabel.putClientProperty(FlatClientProperties.STYLE, "margin: 0,0,4,0");
-        topContainer.add(titleLabel, BorderLayout.NORTH);
-
         // Status Card
         JPanel statusCard = new JPanel(new BorderLayout(Scale.px(10), 0));
-        statusCard.setBackground(new Color(0x18, 0x18, 0x1C));
-        statusCard.putClientProperty(FlatClientProperties.STYLE, "arc: 8; margin: 8,12,8,12");
+        statusCard.setBackground(CustomColors.INTERFACE_BUTTON_BACKGROUND);
+        statusCard.putClientProperty(FlatClientProperties.STYLE, "arc: 8");
+        statusCard.setBorder(BorderFactory.createEmptyBorder(Scale.px(8), Scale.px(12), Scale.px(8), Scale.px(12)));
 
         JPanel leftStatus = new JPanel(new FlowLayout(FlowLayout.LEFT, Scale.px(10), 0));
-        leftStatus.setBackground(new Color(0x18, 0x18, 0x1C));
+        leftStatus.setBackground(CustomColors.INTERFACE_BUTTON_BACKGROUND);
 
-        statusBadge = new JLabel("\u25CF");
-        statusBadge.setFont(Fonts.getFont("default", 16.0f, Font.BOLD));
-        statusBadge.setForeground(COLOR_STOPPED);
+        // An icon, not the "●" character: the launcher's font has no glyph for it and drew an empty box.
+        statusBadge = new JLabel();
+        setStatusDot(COLOR_STOPPED);
         leftStatus.add(statusBadge);
 
         statusText = new JLabel(_localeManager.getValue("m.server_stopped"));
@@ -131,15 +122,15 @@ public class ServerHostUI extends BaseUI {
 
         // LAN IP Display
         JPanel rightStatus = new JPanel(new FlowLayout(FlowLayout.RIGHT, Scale.px(6), 0));
-        rightStatus.setBackground(new Color(0x18, 0x18, 0x1C));
+        rightStatus.setBackground(CustomColors.INTERFACE_BUTTON_BACKGROUND);
 
         lanAddressText = new JLabel(_localeManager.getValue("m.server_lan_address", hostManager.getLanAddress()));
         lanAddressText.setFont(Fonts.getFont("code", 11.0f, Font.PLAIN));
         lanAddressText.setForeground(new Color(0x9E, 0x9E, 0x9E));
         rightStatus.add(lanAddressText);
 
-        copyLanButton = new JButton(_localeManager.getValue("b.copy_lan_ip"));
-        copyLanButton.setFont(Fonts.getFont("default", 10.5f, Font.PLAIN));
+        copyLanButton = new JButton(FontIcon.of(FontAwesome.CLIPBOARD, Scale.px(14), Color.WHITE));
+        copyLanButton.setToolTipText(_localeManager.getValue("b.copy_lan_ip"));
         copyLanButton.setBackground(CustomColors.INTERFACE_BUTTON_BACKGROUND);
         copyLanButton.setForeground(Color.WHITE);
         copyLanButton.setFocusPainted(false);
@@ -154,20 +145,10 @@ public class ServerHostUI extends BaseUI {
         JPanel controlToolbar = new JPanel(new BorderLayout(Scale.px(8), 0));
         controlToolbar.setBackground(CustomColors.INTERFACE_MAINPANE_BACKGROUND);
 
-        JPanel leftControls = new JPanel(new FlowLayout(FlowLayout.LEFT, Scale.px(8), 0));
+        // The three server buttons, flush with the left edge of the status card above.
+        JPanel leftControls = new JPanel();
+        leftControls.setLayout(new javax.swing.BoxLayout(leftControls, javax.swing.BoxLayout.X_AXIS));
         leftControls.setBackground(CustomColors.INTERFACE_MAINPANE_BACKGROUND);
-
-        JLabel portLabel = new JLabel(_localeManager.getValue("m.server_port"));
-        portLabel.setFont(Fonts.getFont("default", 11.0f, Font.BOLD));
-        portLabel.setForeground(Color.WHITE);
-        leftControls.add(portLabel);
-
-        portField = new JTextField(String.valueOf(hostManager.getServerPort()), 5);
-        portField.setFont(Fonts.getFont("code", 11.0f, Font.PLAIN));
-        portField.setBackground(new Color(0x1E, 0x1E, 0x22));
-        portField.setForeground(Color.WHITE);
-        portField.putClientProperty(FlatClientProperties.STYLE, "arc: 6; margin: 3,6,3,6");
-        leftControls.add(portField);
 
         startButton = new JButton(_localeManager.getValue("b.start_server"));
         startButton.setIcon(FontIcon.of(FontAwesome.PLAY, Scale.px(12), Color.WHITE));
@@ -178,6 +159,7 @@ public class ServerHostUI extends BaseUI {
         startButton.putClientProperty(FlatClientProperties.STYLE, "arc: 6; borderWidth: 0; margin: 4,10,4,10");
         startButton.addActionListener(e -> eventHandler.startServer());
         leftControls.add(startButton);
+        leftControls.add(javax.swing.Box.createHorizontalStrut(Scale.px(8)));
 
         stopButton = new JButton(_localeManager.getValue("b.stop_server"));
         stopButton.setIcon(FontIcon.of(FontAwesome.STOP, Scale.px(12), Color.WHITE));
@@ -188,6 +170,7 @@ public class ServerHostUI extends BaseUI {
         stopButton.putClientProperty(FlatClientProperties.STYLE, "arc: 6; borderWidth: 0; margin: 4,10,4,10");
         stopButton.addActionListener(e -> eventHandler.stopServer());
         leftControls.add(stopButton);
+        leftControls.add(javax.swing.Box.createHorizontalStrut(Scale.px(8)));
 
         restartButton = new JButton(_localeManager.getValue("b.restart_server"));
         restartButton.setIcon(FontIcon.of(FontAwesome.REFRESH, Scale.px(12), Color.WHITE));
@@ -203,6 +186,16 @@ public class ServerHostUI extends BaseUI {
 
         JPanel rightControls = new JPanel(new FlowLayout(FlowLayout.RIGHT, Scale.px(8), 0));
         rightControls.setBackground(CustomColors.INTERFACE_MAINPANE_BACKGROUND);
+
+        settingsButton = new JButton(_localeManager.getValue("b.server_settings"));
+        settingsButton.setIcon(FontIcon.of(FontAwesome.COGS, Scale.px(13), Color.WHITE));
+        settingsButton.setFont(Fonts.getFont("default", 11.0f, Font.BOLD));
+        settingsButton.setBackground(CustomColors.INTERFACE_BUTTON_BACKGROUND);
+        settingsButton.setForeground(Color.WHITE);
+        settingsButton.setFocusPainted(false);
+        settingsButton.putClientProperty(FlatClientProperties.STYLE, "arc: 6; borderWidth: 0; margin: 4,12,4,12");
+        settingsButton.addActionListener(e -> eventHandler.openSettings());
+        rightControls.add(settingsButton);
 
         connectButton = new JButton(_localeManager.getValue("b.connect_server"));
         connectButton.setIcon(FontIcon.of(FontAwesome.GAMEPAD, Scale.px(13), Color.WHITE));
@@ -221,29 +214,31 @@ public class ServerHostUI extends BaseUI {
         panel.add(topContainer, BorderLayout.NORTH);
 
         // Console Panel in Center
-        consolePanel = new ServerConsolePanel(hostManager);
+        consolePanel = new ServerConsolePanel(hostManager, _localeManager);
         panel.add(consolePanel, BorderLayout.CENTER);
+    }
+
+    private void setStatusDot(Color color) {
+        statusBadge.setIcon(FontIcon.of(FontAwesome.CIRCLE, Scale.px(14), color));
     }
 
     public void setStatus(boolean running, int port, int players, long uptimeMs) {
         if (statusBadge == null) return;
 
         if (running) {
-            statusBadge.setForeground(COLOR_RUNNING);
-            statusText.setText(_localeManager.getValue("m.server_running") + " (" + _localeManager.getValue("m.server_port") + " " + port + ")");
+            setStatusDot(COLOR_RUNNING);
+            statusText.setText(_localeManager.getValue("m.server_running"));
             startButton.setEnabled(false);
             stopButton.setEnabled(true);
             restartButton.setEnabled(true);
             connectButton.setEnabled(true);
-            portField.setEditable(false);
         } else {
-            statusBadge.setForeground(COLOR_STOPPED);
+            setStatusDot(COLOR_STOPPED);
             statusText.setText(_localeManager.getValue("m.server_stopped"));
             startButton.setEnabled(true);
             stopButton.setEnabled(false);
             restartButton.setEnabled(false);
             connectButton.setEnabled(false);
-            portField.setEditable(true);
         }
 
         if (players == 0) {
@@ -265,7 +260,10 @@ public class ServerHostUI extends BaseUI {
         }
     }
 
-    public String getPortText() {
-        return portField != null ? portField.getText() : "";
+    /** The server settings window saved something (the port or LAN access): shows the address again. */
+    public void refreshFromSettings() {
+        if (lanAddressText == null) return;
+        lanAddressText.setText(_localeManager.getValue("m.server_lan_address",
+            hostManager.getLanAddress() + ":" + hostManager.getServerPort()));
     }
 }

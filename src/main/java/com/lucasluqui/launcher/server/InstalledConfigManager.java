@@ -120,7 +120,9 @@ public final class InstalledConfigManager extends ConfigManager {
                     parentField = found;
                     object = found.get(object);
                     if (bracket >= 0 && object != null) {
-                        String subscript = part.substring(bracket + 1, part.indexOf(']', bracket));
+                        int close = part.indexOf(']', bracket);
+                        if (close < 0) break;
+                        String subscript = part.substring(bracket + 1, close);
                         if (!subscript.matches("[0-9]+")) break;
                         int index = Integer.parseInt(subscript);
                         if (!object.getClass().isArray() || index >= Array.getLength(object)) break;

@@ -20,17 +20,25 @@ import com.threerings.tudey.data.actor.Actor;
  */
 public final class SceneNetworkManager implements AutoCloseable {
     private final int schedulerIntervalMs;
-    private final Map<Integer, SceneChannel> scenes = new LinkedHashMap<>();
+    private final Map<Integer, SceneChannel> scenes = new java.util.concurrent.ConcurrentHashMap<>();
     private final ScheduledExecutorService ticker;
     private volatile boolean running;
-    private final CombatWorld combatWorld;
+    /** The fighting of a scene (null for a scene without combat). */
+    private final java.util.function.IntFunction<CombatWorld> combatOf;
+    private final java.util.Set<String> reportedErrors = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
     public SceneNetworkManager(int havenIntervalMs, int trainingIntervalMs) {
-        this(havenIntervalMs,trainingIntervalMs,null);
+        this(havenIntervalMs, trainingIntervalMs, (CombatWorld) null);
     }
 
     public SceneNetworkManager(int havenIntervalMs, int trainingIntervalMs, CombatWorld combatWorld) {
-        this.combatWorld = combatWorld;
+        this(havenIntervalMs, trainingIntervalMs,
+            sceneId -> sceneId == SceneManager.TRAINING_SCENE_ID ? combatWorld : null);
+    }
+
+    public SceneNetworkManager(int havenIntervalMs, int trainingIntervalMs,
+                               java.util.function.IntFunction<CombatWorld> combatOf) {
+        this.combatOf = combatOf;
         this.schedulerIntervalMs = havenIntervalMs;
         this.scenes.put(SceneManager.DEFAULT_SCENE_ID,
             new SceneChannel(SceneManager.DEFAULT_SCENE_ID, havenIntervalMs));
@@ -60,6 +68,16 @@ public final class SceneNetworkManager implements AutoCloseable {
             + this.schedulerIntervalMs
             + " havenIntervalMs=" + intervalMs(SceneManager.DEFAULT_SCENE_ID)
             + " trainingIntervalMs=" + intervalMs(SceneManager.TRAINING_SCENE_ID));
+    }
+
+    /** Starts ticking a scene made while the server runs. */
+    public void addScene(int sceneId, int intervalMs) {
+        this.scenes.putIfAbsent(sceneId, new SceneChannel(sceneId, intervalMs));
+    }
+
+    /** Stops ticking a scene; its players must have left. */
+    public void removeScene(int sceneId) {
+        this.scenes.remove(sceneId);
     }
 
     public int currentTimestamp(int sceneId) {
@@ -114,8 +132,9 @@ public final class SceneNetworkManager implements AutoCloseable {
             timestamp = scene.timestamp;
         }
         Map<Integer,Actor> actors = snapshotActors(sceneId, timestamp, participants);
-        if (sceneId == SceneManager.TRAINING_SCENE_ID && this.combatWorld != null) {
-            actors.putAll(this.combatWorld.snapshot(timestamp));
+        CombatWorld combat = this.combatOf.apply(sceneId);
+        if (combat != null) {
+            actors.putAll(combat.snapshot(timestamp));
         }
         return actors;
     }
@@ -152,13 +171,18 @@ public final class SceneNetworkManager implements AutoCloseable {
         if (!this.running) {
             return;
         }
-        try {
-            for (SceneChannel scene : this.scenes.values()) {
+        for (SceneChannel scene : this.scenes.values()) {
+            try {
                 tick(scene);
+            } catch (Throwable error) {
+                // A failure in one scene must not skip the others. Full stack trace the first time an error shows up.
+                boolean first = this.reportedErrors.add(scene.sceneId + ":" + error);
+                System.out.println("[NETWORK][ERROR] scene " + scene.sceneId + " tick failed: " + error
+                    + (first ? "" : " (repeated)"));
+                if (first && this.reportedErrors.size() <= 50) {
+                    error.printStackTrace(System.out);
+                }
             }
-        } catch (Throwable error) {
-            System.out.println("[NETWORK][ERROR] scene tick failed: " + error);
-            error.printStackTrace(System.out);
         }
     }
 
@@ -213,8 +237,9 @@ public final class SceneNetworkManager implements AutoCloseable {
                 inputTimestamps.put(session, snapshot.inputTimestamp);
             }
         }
-        if (scene.sceneId == SceneManager.TRAINING_SCENE_ID && this.combatWorld != null) {
-            actors.putAll(this.combatWorld.step(timestamp,actors));
+        CombatWorld combat = this.combatOf.apply(scene.sceneId);
+        if (combat != null) {
+            actors.putAll(combat.step(timestamp,actors));
         }
         for (ClientSession session : participants) {
             try {

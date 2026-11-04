@@ -360,6 +360,11 @@ public class FlamingoManager
         if (name.isEmpty() || name.equalsIgnoreCase("Official")) continue;
 
         Server server = newCustomServer(name);
+        // The name becomes a settings key suffix, so it has to be a plain token (same rule as Add Server).
+        if (!server.getSanitizedName().matches("[a-z0-9][a-z0-9_-]*")) {
+          log.warning("Ignoring a stored server with an unusable name: " + name);
+          continue;
+        }
         server.enabled = json.optInt("enabled", 1);
         servers.add(server);
       }
@@ -395,6 +400,15 @@ public class FlamingoManager
    */
   public void addCustomServer (Server server)
   {
+    addCustomServer(server, true);
+  }
+
+  /**
+   * @param select Whether to switch to the new server. Leave it off when adding on the user's behalf
+   *               from a background thread, so their selection isn't changed under them.
+   */
+  public void addCustomServer (Server server, boolean select)
+  {
     List<Server> servers = loadCustomServers();
     for (Server existing : servers) {
       if (existing.name.equalsIgnoreCase(server.name)) return;
@@ -404,7 +418,7 @@ public class FlamingoManager
 
     getServerList().add(server);
     registerServer(server);
-    setSelectedServer(server);
+    if (select) setSelectedServer(server);
   }
 
   /**
@@ -417,6 +431,7 @@ public class FlamingoManager
     persistCustomServers(servers);
 
     getServerList().remove(server);
+    _settingsManager.removeServerValues(server);
     if (getSelectedServer() == server) {
       Server official = findServerByName("Official");
       if (official != null) setSelectedServer(official);
@@ -426,7 +441,8 @@ public class FlamingoManager
 
   public boolean isCustomServer (Server server)
   {
-    if (server == null) return false;
+    // Remote servers are never custom, even if one shares a name with a stored entry.
+    if (server == null || !server.useStockClient) return false;
     for (Server custom : loadCustomServers()) {
       if (custom.name.equalsIgnoreCase(server.name)) return true;
     }
@@ -516,7 +532,8 @@ public class FlamingoManager
   @Inject protected SettingsManager _settingsManager;
   @Inject protected LocaleManager _localeManager;
 
-  protected List<Server> _serverList = new ArrayList<>();
+  // Copy-on-write: the server host adds its Local Server from a background thread while the UI iterates.
+  protected List<Server> _serverList = new java.util.concurrent.CopyOnWriteArrayList<>();
   protected Server _selectedServer = null;
   protected String _machineId = null;
   protected Status _status = null;

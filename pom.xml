@@ -11,9 +11,9 @@
   <name>Knight Launcher</name>
   <description>Open source game launcher for Spiral Knights.</description>
 
-  <url>https://github.com/lucasluqui/KnightLauncher</url>
+  <url>https://github.com/SirDank/KnightLauncherPlus</url>
   <issueManagement>
-    <url>https://github.com/lucasluqui/KnightLauncher/issues</url>
+    <url>https://github.com/SirDank/KnightLauncherPlus/issues</url>
   </issueManagement>
 
   <developers>
@@ -159,6 +159,13 @@
       <scope>test</scope>
     </dependency>
 
+    <!-- The built-in server keeps accounts, knights and mail in one SQLite file (KnightLauncher/server/world.db). -->
+    <dependency>
+      <groupId>org.xerial</groupId>
+      <artifactId>sqlite-jdbc</artifactId>
+      <version>3.50.3.0</version>
+    </dependency>
+
     <!-- Start of local dependencies, found in 'lib' directory. -->
     <!-- Make sure to run 'mvn validate' at least once to install all the local dependencies below. -->
     <dependency>
@@ -249,9 +256,9 @@
           </execution>
         </executions>
         <configuration>
-          <descriptorRefs>
-            <descriptorRef>jar-with-dependencies</descriptorRef>
-          </descriptorRefs>
+          <descriptors>
+            <descriptor>src/assembly/jar-with-dependencies.xml</descriptor>
+          </descriptors>
           <archive>
             <manifest>
               <mainClass>com.lucasluqui.launcher.Main</mainClass>

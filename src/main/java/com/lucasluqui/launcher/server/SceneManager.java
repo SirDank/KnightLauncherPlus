@@ -1,7 +1,5 @@
 package com.lucasluqui.launcher.server;
 
-import com.lucasluqui.launcher.LauncherGlobals;
-import com.lucasluqui.util.SteamUtil;
 import java.io.InputStream;
 import java.io.File;
 import java.io.FileInputStream;
@@ -50,6 +48,8 @@ public class SceneManager {
     public static final int DEFAULT_SCENE_ID = 1; // Haven Town Square
     public static final int TRAINING_PLACE_OID = 501;
     public static final int TRAINING_SCENE_ID = 294;
+    /** Where the user puts scene files that the game install does not have (relative to the game folder). */
+    public static final String SCENES_DIR = "KnightLauncher/server/scenes";
     /** Legacy single-player pawn id; live sessions use their unique body OID. */
     public static final int PLAYER_PAWN_ID = 1;
     public static final float HAVEN_SPAWN_X = 1.0f;
@@ -76,7 +76,13 @@ public class SceneManager {
     private TudeySceneModel havenSceneModel;
     private TudeySceneModel trainingSceneModel;
     private final CombatWorld combatWorld;
+    private final PartyManager parties;
+    private final DungeonManager dungeons;
+    private final DObjectManager dobjMgr;
     private final SceneCollision havenCollision, trainingCollision;
+    /** Every scene the server hosts, by scene id and by the object id of its place object. */
+    private final java.util.Map<Integer, SceneInstance> instancesBySceneId = new java.util.concurrent.ConcurrentHashMap<>();
+    private final java.util.Map<Integer, SceneInstance> instancesByPlaceOid = new java.util.concurrent.ConcurrentHashMap<>();
     private static Field bodyOidField;
 
     static {
@@ -88,8 +94,11 @@ public class SceneManager {
         }
     }
 
-    public SceneManager(DObjectManager dobjMgr) {
+    public SceneManager(DObjectManager dobjMgr, MovementConfig movementConfig) {
+        this.dobjMgr = dobjMgr;
         this.configManager = loadInstalledConfigs();
+        this.parties = new PartyManager(dobjMgr, this, movementConfig.maxPartySize);
+        this.dungeons = new DungeonManager(this, movementConfig);
         this.weaponCatalog = ItemCatalog.discoverWeapons(this.configManager);
         this.sceneObject = new TownSceneObject();
         this.sceneObject.cH(SCENE_OID);
@@ -104,6 +113,8 @@ public class SceneManager {
         this.trainingSceneObject.occupantInfo = new DSet<>();
         this.trainingSceneObject.mapIcons = new DSet<>();
         initializeSceneServices(this.trainingSceneObject, TRAINING_PLACE_OID);
+
+        importClientScenes(new File(ServerNet.GAME_DIR));
 
         TownSceneConfig resolvedConfig = new TownSceneConfig();
 
@@ -146,12 +157,23 @@ public class SceneManager {
             System.err.println("[SceneManager] Failed to load Training Hall: " + e.getMessage());
         }
         this.trainingConfig = resolvedTrainingConfig;
+        if (this.havenSceneModel == null || this.trainingSceneModel == null) {
+            throw new IllegalStateException("Spiral Knights scene files " + DEFAULT_SCENE_ID + " and "
+                + TRAINING_SCENE_ID + " were not found. Start Spiral Knights, log in "
+                + "and visit Haven and the Training Hall once (the game saves the scenes it receives), then start the server "
+                + "again: it copies them from the game automatically. Or put files named " + DEFAULT_SCENE_ID + " and "
+                + TRAINING_SCENE_ID + " in " + ServerNet.GAME_DIR + java.io.File.separator + SCENES_DIR + ".");
+        }
         this.havenSceneModel.init(this.configManager);
         this.trainingSceneModel.init(this.configManager);
-        this.combatWorld = new CombatWorld(this.configManager, this.trainingSceneModel);
+        this.combatWorld = new CombatWorld(this.configManager, this.trainingSceneModel, movementConfig.combatBurstIntervalMs);
         this.havenCollision=new SceneCollision(this.havenSceneModel,null);
         this.trainingCollision=new SceneCollision(this.trainingSceneModel,this.combatWorld);
 
+        register(new SceneInstance(DEFAULT_SCENE_ID, SCENE_OID, this.sceneObject, this.havenSceneModel,
+            this.havenConfig, this.havenCollision, null));
+        register(new SceneInstance(TRAINING_SCENE_ID, TRAINING_PLACE_OID, this.trainingSceneObject,
+            this.trainingSceneModel, this.trainingConfig, this.trainingCollision, this.combatWorld));
         dobjMgr.register(this.sceneObject);
         dobjMgr.register(this.trainingSceneObject);
         System.out.println("[SceneManager] Initialized Haven Town Scene Object (OID=" + SCENE_OID + ", SceneID=" + DEFAULT_SCENE_ID + ")");
@@ -201,39 +223,80 @@ public class SceneManager {
         return this.havenSceneModel;
     }
 
+    /** The scene with this id, or null. */
+    SceneInstance sceneInstance(int sceneId) {
+        return this.instancesBySceneId.get(sceneId);
+    }
+
+    /** The Training Hall's map: the template the generated dungeon levels are made from. */
+    TudeySceneModel trainingTemplate() {
+        return this.trainingSceneModel;
+    }
+
+    /** Adds a scene made while the server runs (a dungeon level) and makes its place object available to the game. */
+    SceneInstance registerCombatScene(int sceneId, int placeOid, TudeySceneModel model, PlaceConfig config,
+                                      CombatWorld combat, float spawnX, float spawnY) {
+        ProjectXSceneObject object = new ProjectXSceneObject();
+        object.cH(placeOid);
+        object.occupants = new OidList();
+        object.occupantInfo = new DSet<>();
+        object.mapIcons = new DSet<>();
+        initializeSceneServices(object, placeOid);
+        SceneInstance instance = new SceneInstance(sceneId, placeOid, object, model, config,
+            new SceneCollision(model, combat), combat, spawnX, spawnY);
+        this.dobjMgr.register(object);
+        register(instance);
+        return instance;
+    }
+
+    /** Drops a scene made while the server runs. */
+    void unregisterScene(int sceneId) {
+        SceneInstance instance = this.instancesBySceneId.remove(sceneId);
+        if (instance == null) return;
+        this.instancesByPlaceOid.remove(instance.placeOid);
+        this.dobjMgr.unregister(instance.placeOid);
+    }
+
+    private void register(SceneInstance instance) {
+        this.instancesBySceneId.put(instance.sceneId, instance);
+        this.instancesByPlaceOid.put(instance.placeOid, instance);
+    }
+
     public ProjectXSceneObject getSceneObjectByPlaceOid(int placeOid) {
-        if (placeOid == SCENE_OID) {
-            return this.sceneObject;
-        }
-        return placeOid == TRAINING_PLACE_OID ? this.trainingSceneObject : null;
+        SceneInstance instance = this.instancesByPlaceOid.get(placeOid);
+        return instance == null ? null : instance.object;
     }
 
     public TudeySceneModel getSceneModel(int sceneId) {
-        if (sceneId == DEFAULT_SCENE_ID) {
-            return this.havenSceneModel;
-        }
-        return sceneId == TRAINING_SCENE_ID ? this.trainingSceneModel : null;
+        SceneInstance instance = this.instancesBySceneId.get(sceneId);
+        return instance == null ? null : instance.model;
     }
 
     public PlaceConfig getSceneConfig(int sceneId) {
-        if (sceneId == DEFAULT_SCENE_ID) {
-            return this.havenConfig;
-        }
-        return sceneId == TRAINING_SCENE_ID ? this.trainingConfig : null;
+        SceneInstance instance = this.instancesBySceneId.get(sceneId);
+        return instance == null ? null : instance.config;
     }
 
     public int getPlaceOid(int sceneId) {
-        if (sceneId == DEFAULT_SCENE_ID) {
-            return SCENE_OID;
-        }
-        return sceneId == TRAINING_SCENE_ID ? TRAINING_PLACE_OID : -1;
+        SceneInstance instance = this.instancesBySceneId.get(sceneId);
+        return instance == null ? -1 : instance.placeOid;
     }
 
     public int getSceneIdForPlaceOid(int placeOid) {
-        if (placeOid == SCENE_OID) {
-            return DEFAULT_SCENE_ID;
-        }
-        return placeOid == TRAINING_PLACE_OID ? TRAINING_SCENE_ID : -1;
+        SceneInstance instance = this.instancesByPlaceOid.get(placeOid);
+        return instance == null ? -1 : instance.sceneId;
+    }
+
+    /** Whether the scene is one with fighting (the Training Hall, later the dungeons). */
+    public boolean isCombatScene(int sceneId) {
+        SceneInstance instance = this.instancesBySceneId.get(sceneId);
+        return instance != null && instance.combat != null;
+    }
+
+    /** The fighting of a scene; null for a scene without combat. */
+    public CombatWorld getCombatWorld(int sceneId) {
+        SceneInstance instance = this.instancesBySceneId.get(sceneId);
+        return instance == null ? null : instance.combat;
     }
 
     public static int getPortalDestination(int sceneId, float x, float y) {
@@ -325,7 +388,7 @@ public class SceneManager {
 
     public Knight createPlayerKnight(PlayerObject player, int createdTimestamp,
             int sceneId, float spawnX, float spawnY) {
-        boolean combatScene = sceneId == TRAINING_SCENE_ID;
+        boolean combatScene = isCombatScene(sceneId);
         int pawnId = getPlayerPawnId(player);
         ConfigReference<ModelConfig> modelConfig = createPlayerModel(
             player, combatScene ? 0 : -1);
@@ -358,38 +421,52 @@ public class SceneManager {
         return player == null ? PLAYER_PAWN_ID : player.xL();
     }
 
+    /**
+     * Copies the scenes the game client has cached ({@code <game>/scenes/<id>}, written when you visit
+     * them online) into {@link #SCENES_DIR}, so the server keeps its own copy of the exact scenes the
+     * official servers sent. Scenes already there are left alone.
+     *
+     * @return How many scenes were copied.
+     */
+    public static int importClientScenes(File gameDir) {
+        int copied = 0;
+        for (int sceneId : new int[]{DEFAULT_SCENE_ID, TRAINING_SCENE_ID}) {
+            File target = new File(gameDir, SCENES_DIR + "/" + sceneId);
+            if (target.isFile()) continue;
+            for (String dir : new String[]{"scenes/", "rsrc/scenes/"}) {
+                File source = new File(gameDir, dir + sceneId);
+                if (!source.isFile()) continue;
+                try {
+                    java.nio.file.Files.createDirectories(target.getParentFile().toPath());
+                    java.nio.file.Files.copy(source.toPath(), target.toPath());
+                    System.out.println("[SceneManager] Copied scene " + sceneId + " from the game's cache (" + source.getPath() + ")");
+                    copied++;
+                } catch (java.io.IOException e) {
+                    System.err.println("[SceneManager] Could not copy scene " + sceneId + ": " + e.getMessage());
+                }
+                break;
+            }
+        }
+        return copied;
+    }
+
+    /**
+     * A scene file (never bundled with the launcher), or null if there is none. The server process
+     * runs in the game directory, so paths are relative to that. The client downloads most scenes
+     * on demand, so a normal install may not have these: put them in {@link #SCENES_DIR}.
+     */
     public static InputStream openSceneStream(int sceneId) {
-        File sceneFile = new File("scenes/" + sceneId);
-        if (sceneFile.exists()) {
-            try { return new java.io.FileInputStream(sceneFile); } catch (Exception ignored) {}
+        for (String dir : new String[]{SCENES_DIR + "/", "rsrc/scenes/", "scenes/"}) {
+            File sceneFile = new File(ServerNet.GAME_DIR, dir + sceneId);
+            if (sceneFile.isFile()) {
+                try { return new java.io.FileInputStream(sceneFile); } catch (Exception ignored) {}
+            }
         }
-        File userDirScene = new File(LauncherGlobals.USER_DIR, "scenes/" + sceneId);
-        if (userDirScene.exists()) {
-            try { return new java.io.FileInputStream(userDirScene); } catch (Exception ignored) {}
-        }
-        return SceneManager.class.getResourceAsStream("/rsrc/scenes/" + sceneId);
+        return null;
     }
 
     public static File findConfigFile(String configName) {
-        File local = new File("rsrc/config", configName);
-        if (local.exists()) return local;
-
-        File userDir = new File(LauncherGlobals.USER_DIR, "rsrc/config/" + configName);
-        if (userDir.exists()) return userDir;
-
-        String steam = SteamUtil.getGamePathWindows();
-        if (steam != null) {
-            File steamFile = new File(steam, "rsrc/config/" + configName);
-            if (steamFile.exists()) return steamFile;
-        }
-
-        File dSteam = new File("D:\\SteamLibrary\\steamapps\\common\\Spiral Knights\\rsrc\\config", configName);
-        if (dSteam.exists()) return dSteam;
-
-        File cSteam = new File("C:\\Program Files (x86)\\Steam\\steamapps\\common\\Spiral Knights\\rsrc\\config", configName);
-        if (cSteam.exists()) return cSteam;
-
-        return local;
+        return new File(ServerNet.GAME_DIR, "rsrc/config/" + configName);
     }
 
     private static InstalledConfigManager loadInstalledConfigs() {
@@ -406,12 +483,26 @@ public class SceneManager {
             manager.loadGroup(com.threerings.tudey.config.TileConfig.class, findConfigFile("tile.dat"));
             manager.loadGroup(com.threerings.tudey.config.PlaceableConfig.class, findConfigFile("placeable.dat"));
             manager.loadGroup(com.threerings.tudey.config.PathConfig.class, findConfigFile("path.dat"));
+            manager.loadGroup(com.threerings.projectx.dungeon.config.SpawnTableConfig.class, findConfigFile("spawn_table.dat"));
             System.out.println("[SceneManager] Loaded installed combat configs: actors="
                 + actors + " items=" + items + " attacks=" + attacks);
         } catch (Exception e) {
             throw new IllegalStateException("Unable to load installed combat configs: " + e.getMessage(), e);
         }
         return manager;
+    }
+
+    DungeonManager dungeons() {
+        return this.dungeons;
+    }
+
+    /** Whether the scene was made while the server runs (a dungeon level) rather than loaded from a file. */
+    boolean isGenerated(int sceneId) {
+        return this.dungeons.isDungeon(sceneId);
+    }
+
+    PartyManager parties() {
+        return this.parties;
     }
 
     public InstalledConfigManager getConfigManager() {
@@ -425,7 +516,8 @@ public class SceneManager {
     }
 
     public SceneCollision getCollision(int sceneId) {
-        return sceneId==TRAINING_SCENE_ID?this.trainingCollision:this.havenCollision;
+        SceneInstance instance = this.instancesBySceneId.get(sceneId);
+        return instance == null ? this.havenCollision : instance.collision;
     }
 
     public LevelItem getEquippedWeapon(PlayerObject player, int weaponIndex) {
@@ -518,8 +610,7 @@ public class SceneManager {
     }
 
     public synchronized void movePlayerToScene(PlayerObject po, int sceneId) {
-        removePlayerFrom(this.sceneObject, po);
-        removePlayerFrom(this.trainingSceneObject, po);
+        for (SceneInstance instance : this.instancesBySceneId.values()) removePlayerFrom(instance.object, po);
         ProjectXSceneObject target = getSceneObjectByPlaceOid(getPlaceOid(sceneId));
         if (target == null) {
             throw new IllegalArgumentException("Unknown sceneId=" + sceneId);
@@ -559,8 +650,7 @@ public class SceneManager {
             return;
         }
 
-        removePlayerFrom(this.sceneObject, po);
-        removePlayerFrom(this.trainingSceneObject, po);
+        for (SceneInstance instance : this.instancesBySceneId.values()) removePlayerFrom(instance.object, po);
         System.out.println("[SceneManager] Player removed from all local scenes: bodyOid="
             + po.xL());
     }

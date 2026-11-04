@@ -1,0 +1,36 @@
+<assembly xmlns="http://maven.apache.org/ASSEMBLY/2.2.0"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/ASSEMBLY/2.2.0 https://maven.apache.org/xsd/assembly-2.2.0.xsd">
+  <!--
+    The stock jar-with-dependencies, except that it leaves out the SQLite natives for platforms the game does not run
+    on (FreeBSD, Android, musl, 32-bit and rare CPUs). That is about 8 MB less in the launcher jar.
+  -->
+  <id>jar-with-dependencies</id>
+  <formats>
+    <format>jar</format>
+  </formats>
+  <includeBaseDirectory>false</includeBaseDirectory>
+  <dependencySets>
+    <dependencySet>
+      <outputDirectory>/</outputDirectory>
+      <useProjectArtifact>true</useProjectArtifact>
+      <unpack>true</unpack>
+      <scope>runtime</scope>
+      <unpackOptions>
+        <excludes>
+          <exclude>org/sqlite/native/FreeBSD/**</exclude>
+          <exclude>org/sqlite/native/Linux-Android/**</exclude>
+          <exclude>org/sqlite/native/Linux-Musl/**</exclude>
+          <exclude>org/sqlite/native/Linux/arm/**</exclude>
+          <exclude>org/sqlite/native/Linux/armv6/**</exclude>
+          <exclude>org/sqlite/native/Linux/armv7/**</exclude>
+          <exclude>org/sqlite/native/Linux/ppc64/**</exclude>
+          <exclude>org/sqlite/native/Linux/riscv64/**</exclude>
+          <exclude>org/sqlite/native/Linux/x86/**</exclude>
+          <exclude>org/sqlite/native/Windows/armv7/**</exclude>
+          <exclude>org/sqlite/native/Windows/x86/**</exclude>
+        </excludes>
+      </unpackOptions>
+    </dependencySet>
+  </dependencySets>
+</assembly>
