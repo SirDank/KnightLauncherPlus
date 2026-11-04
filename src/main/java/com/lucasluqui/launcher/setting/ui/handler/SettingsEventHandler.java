@@ -257,16 +257,37 @@ public class SettingsEventHandler
     Settings.gameGetdownURL = toClientRootUrl(Settings.gameGetdownFullURL);
     Settings.gameContentURL = this.ui.contentURLTextField.getText().trim();
 
-    _settingsManager.setConnectionSettings(selectedServer, Settings.gameEndpoint, String.valueOf(Settings.gamePort),
+    _settingsManager.setConnectionSettings(selectedServer, Settings.gameEndpoint, this.ui.portTextField.getText().trim(),
       Settings.gamePublicKey, Settings.gameGetdownFullURL, Settings.gameContentURL);
   }
 
+  /** The port in the field: 1-65535, 0 when blank (use the default), -1 when it is not a usable port. */
   private int parsePort (String port)
   {
+    String trimmed = port.trim();
+    if (trimmed.isEmpty()) return 0;
     try {
-      return Integer.parseInt(port.trim());
+      int value = Integer.parseInt(trimmed);
+      return value >= 1 && value <= 65535 ? value : -1;
     } catch (NumberFormatException e) {
-      return 0;
+      return -1;
+    }
+  }
+
+  /** Whether the saved connection settings can be written to the game: a usable port and http(s) URLs. */
+  public static boolean connectionSettingsValid ()
+  {
+    return Settings.gamePort >= 0 && isHttpUrl(Settings.gameGetdownFullURL) && isHttpUrl(Settings.gameContentURL);
+  }
+
+  private static boolean isHttpUrl (String url)
+  {
+    if (url == null || url.trim().isEmpty()) return true; // blank falls back to the default
+    try {
+      String scheme = new java.net.URI(url.trim()).getScheme();
+      return "http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme);
+    } catch (java.net.URISyntaxException e) {
+      return false;
     }
   }
 

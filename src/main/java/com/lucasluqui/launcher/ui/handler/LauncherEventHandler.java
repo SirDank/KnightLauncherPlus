@@ -130,6 +130,14 @@ public class LauncherEventHandler
 
         _ctx.getApp().getUI(SettingsUI.class).eventHandler.saveAdditionalArgs();
         _ctx.getApp().getUI(SettingsUI.class).eventHandler.saveConnectionSettings();
+        // A private server launch rewrites the game's config.jar; put the Official endpoint back first.
+        if (_settingsManager.isConfigJarPrivate() && !_settingsManager.applyConnectionSettings()) {
+          // Launching now would connect the game to the private server it was last set up for.
+          Dialog.push(_localeManager.getValue("m.connection_settings_apply_failed"), JOptionPane.ERROR_MESSAGE);
+          _ctx.getApp().toggleElementsBlock(false);
+          ui.resetLaunchButton();
+          return;
+        }
         _settingsManager.applyGameSettings();
 
         // Remove any arguments in _JAVA_OPTIONS.
@@ -162,6 +170,13 @@ public class LauncherEventHandler
         _ctx._progressBar.setBarValue(0);
 
         _ctx.getApp().getUI(SettingsUI.class).eventHandler.saveConnectionSettings();
+        if (!SettingsEventHandler.connectionSettingsValid()) {
+          Dialog.push(_localeManager.getValue("m.connection_settings_invalid"), JOptionPane.ERROR_MESSAGE);
+          _ctx._progressBar.finishTask();
+          _ctx.getApp().toggleElementsBlock(false);
+          ui.resetLaunchButton();
+          return;
+        }
         if (Settings.gameEndpoint.isEmpty() || !_settingsManager.applyConnectionSettings()) {
           Dialog.push(_localeManager.getValue("m.connection_settings_apply_failed"), JOptionPane.ERROR_MESSAGE);
           _ctx._progressBar.finishTask();
@@ -184,10 +199,22 @@ public class LauncherEventHandler
             game.environment().remove("SteamGameId");
           }
           game.redirectErrorStream(true);
-          game.redirectOutput(new File(LauncherGlobals.USER_DIR, "private-client.log"));
+          File clientLog = new File(LauncherGlobals.USER_DIR, "private-client.log");
+          if (clientLog.isFile()) { // keep the previous run's log for one launch
+            try {
+              java.nio.file.Files.move(clientLog.toPath(), new File(clientLog.getPath() + ".old").toPath(),
+                java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            } catch (java.io.IOException e) {
+              log.warning("Could not rotate private-client.log: " + e.getMessage()); // e.g. still open on Windows
+            }
+          }
+          game.redirectOutput(clientLog);
           game.start();
         } catch (java.io.IOException e) {
           log.error(e);
+          Dialog.push(_localeManager.getValue("m.private_launch_failed"), JOptionPane.ERROR_MESSAGE);
+          _ctx.getApp().toggleElementsBlock(false);
+          ui.resetLaunchButton();
         }
         _ctx._progressBar.finishTask();
         // end: stock-client private server launch procedure
@@ -967,20 +994,7 @@ public class LauncherEventHandler
     List<String> argsList = new ArrayList<>();
     argsList.add(JavaUtil.getGameJVMExePath());
     argsList.add("-classpath");
-    List<String> classpath = new ArrayList<>();
-    File codeDirectory = new File(LauncherGlobals.USER_DIR, "code");
-    // Keep game configuration first; updater jars contain conflicting obfuscated classes.
-    for (String jar : new String[]{"config.jar", "projectx-config.jar", "projectx-pcode.jar"}) {
-      classpath.add(new File(codeDirectory, jar).getAbsolutePath());
-    }
-    File[] libraries = codeDirectory.listFiles(file -> file.isFile()
-      && file.getName().endsWith(".jar")
-      && !file.getName().toLowerCase(java.util.Locale.ROOT).contains("getdown")
-      && !Arrays.asList("config.jar", "projectx-config.jar", "projectx-pcode.jar").contains(file.getName()));
-    if (libraries != null) {
-      Arrays.sort(libraries, java.util.Comparator.comparing(File::getName));
-      for (File library : libraries) classpath.add(library.getAbsolutePath());
-    }
+    List<String> classpath = JavaUtil.getGameClasspath();
     classpath.add(new File(LauncherGlobals.USER_DIR, "KnightLauncher.jar").getAbsolutePath());
     argsList.add(String.join(File.pathSeparator, classpath));
     argsList.add("-Dcom.threerings.getdown=false");
@@ -989,11 +1003,18 @@ public class LauncherEventHandler
     if (Settings.gameDisableExplicitGC) argsList.add("-XX:+DisableExplicitGC");
     if (Settings.gameUseCustomGC) argsList.add("-XX:+Use" + Settings.gameGarbageCollector + "GC");
     argsList.add("-XX:SoftRefLRUPolicyMSPerMB=10");
-    if (!JavaUtil.isLegacy()) {
+    int gameJvm = 8;
+    try {
+      gameJvm = JavaUtil.getJVMVersion(argsList.get(0));
+    } catch (Exception e) {
+      log.error("Failed to get game Java VM version", e);
+    }
+    // --add-opens exists from Java 9, --enable-native-access from Java 16; older VMs reject unknown flags.
+    if (gameJvm >= 9) {
       argsList.add("--add-opens=java.base/java.lang=ALL-UNNAMED");
       argsList.add("--add-opens=java.base/java.util=ALL-UNNAMED");
-      argsList.add("--enable-native-access=ALL-UNNAMED");
     }
+    if (gameJvm >= 16) argsList.add("--enable-native-access=ALL-UNNAMED");
     if (!Settings.gameAdditionalArgs.trim().isEmpty()) {
       argsList.addAll(Arrays.asList(Settings.gameAdditionalArgs.trim().split("\r?\n")));
     }

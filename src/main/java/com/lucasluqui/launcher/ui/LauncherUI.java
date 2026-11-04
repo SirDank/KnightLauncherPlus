@@ -60,9 +60,8 @@ public class LauncherUI extends BaseUI
       // Tends to fail on anything that's not 26+ (Tahoe).
       if (SystemUtil.isMac()) {
         try {
-          Image image = Toolkit.getDefaultToolkit().getImage(
-            LauncherGlobals.USER_DIR + File.separator + "KnightLauncher" + File.separator + "images" + File.separator + "icon-512.png"
-          );
+          // From the jar: on macOS no icon-512.png is ever written to the images folder, only the .icns.
+          Image image = ImageUtil.loadImageWithinJar("/rsrc/img/icon-512.png");
           if (Taskbar.isTaskbarSupported() && Taskbar.getTaskbar().isSupported(Taskbar.Feature.ICON_IMAGE)) {
             Taskbar.getTaskbar().setIconImage(image);
           }
@@ -290,8 +289,9 @@ public class LauncherUI extends BaseUI
     sidePane.add(playerCountTooltipButton);
     playerCountTooltipButton.setVisible(false);
 
-    // silverweave button needs the group to sit higher to stay centered between its neighbors.
-    int sideButtonsY = 220;
+    // Five buttons (35px, 4px apart) start below the "Learn more" pill (which ends at y=238) and
+    // end above the discord/bug/donate row.
+    int sideButtonsY = 245;
 
     Icon settingsIcon = FontIcon.of(FontAwesome.COGS, Scale.px(16), ColorUtil.getForegroundColor());
     settingsButton = new JButton(_localeManager.getValue("b.settings"));
@@ -313,7 +313,7 @@ public class LauncherUI extends BaseUI
     Icon modsIcon = FontIcon.of(FontAwesome.PUZZLE_PIECE, Scale.px(16), ColorUtil.getForegroundColor());
     modButton = new JButton(_localeManager.getValue("b.mods"));
     modButton.setIcon(modsIcon);
-    modButton.setBounds(Scale.rect(28, sideButtonsY + 40, 125, 35));
+    modButton.setBounds(Scale.rect(28, sideButtonsY + 39, 125, 35));
     modButton.setHorizontalAlignment(SwingConstants.LEFT);
     modButton.setFont(Fonts.getFont("default", 11.0f, Font.BOLD));
     modButton.setFocusPainted(false);
@@ -331,7 +331,7 @@ public class LauncherUI extends BaseUI
     Icon editorsIcon = FontIcon.of(FontAwesome.PENCIL, Scale.px(16), ColorUtil.getForegroundColor());
     editorsButton = new JButton(_localeManager.getValue("b.editors"));
     editorsButton.setIcon(editorsIcon);
-    editorsButton.setBounds(Scale.rect(28, sideButtonsY + 80, 125, 35));
+    editorsButton.setBounds(Scale.rect(28, sideButtonsY + 78, 125, 35));
     editorsButton.setHorizontalAlignment(SwingConstants.LEFT);
     editorsButton.setFont(Fonts.getFont("default", 11.0f, Font.BOLD));
     editorsButton.setFocusPainted(false);
@@ -349,7 +349,7 @@ public class LauncherUI extends BaseUI
     Icon silverweaveIcon = FontIcon.of(FontAwesome.MAGIC, Scale.px(16), Color.WHITE);
     silverweaveButton = new JButton(_localeManager.getValue("b.silverweave"));
     silverweaveButton.setIcon(silverweaveIcon);
-    silverweaveButton.setBounds(Scale.rect(28, sideButtonsY + 120, 125, 35));
+    silverweaveButton.setBounds(Scale.rect(28, sideButtonsY + 117, 125, 35));
     silverweaveButton.setHorizontalAlignment(SwingConstants.LEFT);
     silverweaveButton.setFont(Fonts.getFont("default", 11.0f, Font.BOLD));
     silverweaveButton.setFocusPainted(false);
@@ -369,7 +369,7 @@ public class LauncherUI extends BaseUI
     Icon serverIcon = FontIcon.of(FontAwesome.SERVER, Scale.px(16), ColorUtil.getForegroundColor());
     hostServerButton = new JButton(_localeManager.getValue("b.host_server"));
     hostServerButton.setIcon(serverIcon);
-    hostServerButton.setBounds(Scale.rect(28, sideButtonsY + 160, 125, 35));
+    hostServerButton.setBounds(Scale.rect(28, sideButtonsY + 156, 125, 35));
     hostServerButton.setHorizontalAlignment(SwingConstants.LEFT);
     hostServerButton.setFont(Fonts.getFont("default", 11.0f, Font.BOLD));
     hostServerButton.setFocusPainted(false);
@@ -384,7 +384,7 @@ public class LauncherUI extends BaseUI
     sidePane.add(hostServerButton);
 
     JButton discordButton = new JButton(ImageUtil.imageStreamToIcon(LauncherUI.class.getResourceAsStream("/rsrc/img/icon-discord.png")));
-    discordButton.setBounds(Scale.rect(65, 440, 36, 36));
+    discordButton.setBounds(Scale.rect(65, 444, 36, 36));
     discordButton.setToolTipText(_localeManager.getValue("b.discord"));
     discordButton.setFocusPainted(false);
     discordButton.setFocusable(false);
@@ -395,7 +395,7 @@ public class LauncherUI extends BaseUI
 
     Icon bugIcon = FontIcon.of(FontAwesome.BUG, Scale.px(17), Color.WHITE);
     JButton bugButton = new JButton(bugIcon);
-    bugButton.setBounds(Scale.rect(107, 440, 36, 36));
+    bugButton.setBounds(Scale.rect(107, 444, 36, 36));
     bugButton.setToolTipText(_localeManager.getValue("b.bugs"));
     bugButton.setFocusPainted(false);
     bugButton.setFocusable(false);
@@ -406,7 +406,7 @@ public class LauncherUI extends BaseUI
 
     Icon donateIcon = FontIcon.of(FontAwesome.COFFEE, Scale.px(17), Color.BLACK);
     JButton donateButton = new JButton(donateIcon);
-    donateButton.setBounds(Scale.rect(149, 440, 36, 36));
+    donateButton.setBounds(Scale.rect(149, 444, 36, 36));
     donateButton.setToolTipText(_localeManager.getValue("b.donate"));
     donateButton.setFocusPainted(false);
     donateButton.setFocusable(false);

@@ -1,12 +1,14 @@
 package com.lucasluqui.launcher;
 
 import com.formdev.flatlaf.FlatDarkLaf;
+import com.formdev.flatlaf.FlatLaf;
 import com.lucasluqui.swing.FractionalMetrics;
 import jiconfont.icons.font_awesome.FontAwesome;
 import jiconfont.swing.IconFontSwing;
 
 import javax.swing.*;
 import java.awt.*;
+import java.util.Collections;
 
 import static com.lucasluqui.launcher.Log.log;
 
@@ -19,6 +21,9 @@ public class Stylesheet
     System.setProperty("swing.aatext", "true");
 
     IconFontSwing.register(FontAwesome.getIconFont());
+
+    // FlatLaf's accent drives focus rings, selections, sliders and switches.
+    FlatLaf.setGlobalExtraDefaults(Collections.singletonMap("@accentColor", "#AB4A81"));
 
     try {
       UIManager.setLookAndFeel(new FlatDarkLaf());

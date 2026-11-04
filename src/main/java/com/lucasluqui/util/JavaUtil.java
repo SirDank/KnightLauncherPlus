@@ -8,6 +8,11 @@ import com.lucasluqui.launcher.runtime.RuntimeLocator;
 import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Locale;
 import java.util.Properties;
 import java.util.jar.Attributes;
 import java.util.jar.JarEntry;
@@ -183,6 +188,29 @@ public class JavaUtil
     return "javaw";
   }
 
+  /**
+   * The game's classpath: its configuration jars first (updater jars hold conflicting obfuscated
+   * classes), then every other non-getdown jar in 'code', sorted by name.
+   */
+  public static List<String> getGameClasspath ()
+  {
+    List<String> classpath = new ArrayList<>();
+    File codeDirectory = new File(LauncherGlobals.USER_DIR, "code");
+    List<String> first = Arrays.asList("config.jar", "projectx-config.jar", "projectx-pcode.jar");
+    for (String jar : first) {
+      classpath.add(new File(codeDirectory, jar).getAbsolutePath());
+    }
+    File[] libraries = codeDirectory.listFiles(file -> file.isFile()
+      && file.getName().endsWith(".jar")
+      && !file.getName().toLowerCase(Locale.ROOT).contains("getdown")
+      && !first.contains(file.getName()));
+    if (libraries != null) {
+      Arrays.sort(libraries, Comparator.comparing(File::getName));
+      for (File library : libraries) classpath.add(library.getAbsolutePath());
+    }
+    return classpath;
+  }
+
   public static boolean isLegacy ()
   {
     int gameJVMVersion = 8;
@@ -206,11 +234,20 @@ public class JavaUtil
    */
   public static String getLauncherJavaExePath ()
   {
+    return getLauncherJavaExePath(true);
+  }
+
+  /**
+   * @param windowed Whether the windowed executable (javaw on Windows) is preferred. Use false for a
+   *                 child process whose output is read: javaw has no stdout and shows errors in a box.
+   */
+  public static String getLauncherJavaExePath (boolean windowed)
+  {
     File home = RuntimeLocator.getInstalledRuntimeDir();
     if (home == null) home = RuntimeLocator.getCurrentJavaHome();
 
-    File exe = RuntimeLocator.getJavaExecutable(home, true);
-    if (!exe.isFile()) exe = RuntimeLocator.getJavaExecutable(home, false);
+    File exe = RuntimeLocator.getJavaExecutable(home, windowed);
+    if (!exe.isFile()) exe = RuntimeLocator.getJavaExecutable(home, !windowed);
     return exe.getAbsolutePath();
   }
 

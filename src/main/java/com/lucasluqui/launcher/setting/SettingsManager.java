@@ -132,7 +132,11 @@ public class SettingsManager
     Settings.gameGarbageCollector = getValue("game.garbageCollector.v2");
     Settings.gameExtraPerfMode = Boolean.parseBoolean(getValue("game.extraPerfMode"));
     Settings.gameEndpoint = getValue("game.endpoint");
-    Settings.gamePort = Integer.parseInt(getValue("game.port"));
+    try {
+      Settings.gamePort = Integer.parseInt(getValue("game.port").trim());
+    } catch (NumberFormatException e) {
+      Settings.gamePort = 0; // blank or invalid: the default port is used
+    }
     Settings.gamePublicKey = getValue("game.publicKey");
     Settings.gameGetdownURL = getValue("game.getdownURL");
     Settings.gameGetdownFullURL = getValue("game.getdownFullURL");
@@ -197,6 +201,16 @@ public class SettingsManager
     }
     saveProp();
     log.info("Setting new server-specific key", "key", key, "value", value, "server", server == null ? "null" : server.name);
+  }
+
+  /** Deletes the per-server settings (game.*_name) of a server that was removed. */
+  public void removeServerValues (Server server)
+  {
+    String suffix = "_" + server.getSanitizedName();
+    for (String base : readBaseKeyOrder()) {
+      if (base.startsWith("game.")) _prop.remove(base + suffix);
+    }
+    saveProp();
   }
 
   private HashMap<String, Object> getAllKeyValues ()
@@ -349,23 +363,35 @@ public class SettingsManager
 
   public String filterAdditionalArgs (String argString)
   {
+    return filterAdditionalArgs(argString, Settings.gameExtraPerfMode);
+  }
+
+  /**
+   * Drops the arguments extra performance mode must not pass on (it sets the heap size itself).
+   */
+  public static String filterAdditionalArgs (String argString, boolean extraPerfMode)
+  {
     if (argString.isEmpty()) return argString;
 
-    // iterate through all args.
-    List<String> args = Arrays.asList(argString.split("\\r?\\n"));
-    for (String arg : args) {
-      // filter out stuff we don't want while in extra perf mode.
-      if (Settings.gameExtraPerfMode) {
-        if (arg.startsWith("-Xms") || arg.startsWith("-Xmx")) {
-          args.remove(arg);
-        }
-      }
-
-      // any other filters, if any, should go here below.
+    // A copy: Arrays.asList is fixed-size and can't have elements removed.
+    List<String> args = new ArrayList<>(Arrays.asList(argString.split("\\r?\\n")));
+    if (extraPerfMode) {
+      args.removeIf(arg -> arg.startsWith("-Xms") || arg.startsWith("-Xmx"));
     }
+
+    // any other filters, if any, should go here below.
 
     // return the filtered args as a single string.
     return String.join(System.lineSeparator(), args);
+  }
+
+
+  private static final String CONFIG_JAR_PRIVATE_KEY = "launcher.configJarPrivate";
+
+  /** Whether a private server launch left its connection settings in the game's config.jar. */
+  public boolean isConfigJarPrivate ()
+  {
+    return "true".equalsIgnoreCase(getValue(CONFIG_JAR_PRIVATE_KEY, "false"));
   }
 
   /**
@@ -391,6 +417,8 @@ public class SettingsManager
       ZipUtil.updatePropertiesInsideZip(
         Paths.get(LauncherGlobals.USER_DIR, "code", "config.jar"),
         "deployment.properties", properties);
+      // Remember whether config.jar now points at a private server, so an Official launch can undo it.
+      setValue(CONFIG_JAR_PRIVATE_KEY, String.valueOf(server != null && server.useStockClient));
       return true;
     } catch (IOException | IllegalArgumentException e) {
       log.error("Failed to apply connection settings to code/config.jar",
