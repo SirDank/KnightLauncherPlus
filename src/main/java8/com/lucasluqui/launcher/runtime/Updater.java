@@ -257,9 +257,9 @@ public final class Updater
 
   private static final String LAUNCHER_JAR = "KnightLauncher.jar";
 
-  private static final String GITHUB_URL_REPO = "https://github.com/lucasluqui/KnightLauncher/";
+  private static final String GITHUB_URL_REPO = "https://github.com/SirDank/KnightLauncherPlus/";
   private static final String GITHUB_API_LATEST_RELEASE =
-    "https://api.github.com/repos/lucasluqui/KnightLauncher/releases/latest";
+    "https://api.github.com/repos/SirDank/KnightLauncherPlus/releases/latest";
 
   private static final Pattern TAG_NAME = Pattern.compile("\"tag_name\"\\s*:\\s*\"([^\"]+)\"");
 

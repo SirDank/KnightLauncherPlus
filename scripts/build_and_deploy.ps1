@@ -85,6 +85,22 @@ if (-not (Test-Path $mvnw)) {
 
 $envMode = if ($Dev) { 'dev' } else { 'prod' }
 
+# The build bakes deploy.properties into the jar; a fresh clone only has the template.
+if (-not (Test-Path 'deploy.properties')) {
+    Copy-Item 'deploy.properties.template' 'deploy.properties'
+}
+
+# Compiling needs the game's own jar, which can't be committed: take it from the game install
+# (and refresh it when the game updated).
+$gamePcode = Join-Path $targetSkDir 'code\projectx-pcode.jar'
+$libPcode = Join-Path $repoRoot 'lib\projectx-pcode.jar'
+if (-not $SkipBuild) {
+    if (-not (Test-Path $libPcode) -or (Get-FileHash $gamePcode).Hash -ne (Get-FileHash $libPcode).Hash) {
+        Write-Host "[*] Copying projectx-pcode.jar from the game -> lib\" -ForegroundColor Yellow
+        Copy-Item -Path $gamePcode -Destination $libPcode -Force
+    }
+}
+
 if (-not $SkipBuild) {
     Write-Host "[*] Building KnightLauncherPlus (env=$envMode) using Maven Wrapper..." -ForegroundColor Yellow
     & $mvnw "-Denv=$envMode" '-DskipTests' clean package
@@ -100,6 +116,10 @@ if (-not (Test-Path $targetJar)) {
 
 # 2. Deploy to game directory
 $destJar = Join-Path $targetSkDir 'KnightLauncher.jar'
+if (Test-Path $destJar) {
+    Write-Host "[*] Backing up the installed launcher -> $destJar.bak (close the launcher before deploying)" -ForegroundColor Yellow
+    Copy-Item -Path $destJar -Destination "$destJar.bak" -Force
+}
 Write-Host "[*] Deploying KnightLauncher.jar -> $destJar..." -ForegroundColor Yellow
 Copy-Item -Path $targetJar -Destination $destJar -Force
 

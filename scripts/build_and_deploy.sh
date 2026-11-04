@@ -29,22 +29,31 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --sk-dir|-SkDir)
+      if [[ $# -lt 2 || -z "$2" ]]; then
+        echo "Error: --sk-dir needs a path." >&2
+        exit 2
+      fi
       SK_DIR="$2"
       shift 2
       ;;
     *)
-      shift
+      echo "Error: unknown option '$1'. Options: --skip-build --dev --run --dry-run --sk-dir <path>" >&2
+      exit 2
       ;;
   esac
 done
 
 find_sk_dir() {
-  if [[ -n "$SK_DIR" && -f "$SK_DIR/code/projectx-pcode.jar" ]]; then
-    echo "$SK_DIR"
-    return 0
+  if [[ -n "$SK_DIR" ]]; then
+    if [[ -f "$SK_DIR/code/projectx-pcode.jar" ]]; then
+      echo "$SK_DIR"
+      return 0
+    fi
+    echo "Error: --sk-dir '$SK_DIR' does not contain code/projectx-pcode.jar" >&2
+    return 1
   fi
 
-  for v in "$SK_GAME_DIR" "$SK_DIR" "$SPIRAL_KNIGHTS_DIR"; do
+  for v in "$SK_GAME_DIR" "$SPIRAL_KNIGHTS_DIR"; do
     if [[ -n "$v" && -f "$v/code/projectx-pcode.jar" ]]; then
       echo "$v"
       return 0
@@ -70,7 +79,7 @@ find_sk_dir() {
   echo ""
 }
 
-TARGET_SK_DIR="$(find_sk_dir)"
+TARGET_SK_DIR="$(find_sk_dir)" || exit 1
 if [[ -z "$TARGET_SK_DIR" ]]; then
   echo "Error: Could not automatically detect Spiral Knights installation directory." >&2
   echo "Please set SK_GAME_DIR environment variable or pass --sk-dir <path>." >&2
@@ -89,9 +98,21 @@ if [[ "$DEV_BUILD" == "true" ]]; then
   ENV_MODE="dev"
 fi
 
+# The build bakes deploy.properties into the jar; a fresh clone only has the template.
+if [[ ! -f deploy.properties ]]; then
+  cp deploy.properties.template deploy.properties
+fi
+
+# Compiling needs the game's own jar, which can't be committed: take it from the game install
+# (and refresh it when the game updated).
+if [[ "$SKIP_BUILD" != "true" ]] && ! cmp -s "$TARGET_SK_DIR/code/projectx-pcode.jar" lib/projectx-pcode.jar; then
+  echo "[*] Copying projectx-pcode.jar from the game -> lib/"
+  cp -f "$TARGET_SK_DIR/code/projectx-pcode.jar" lib/projectx-pcode.jar
+fi
+
 if [[ "$SKIP_BUILD" != "true" ]]; then
   echo "[*] Building KnightLauncherPlus (env=$ENV_MODE) via Maven Wrapper..."
-  ./mvnw -Denv="$ENV_MODE" -DskipTests clean package
+  sh ./mvnw -Denv="$ENV_MODE" -DskipTests clean package
 fi
 
 TARGET_JAR="$REPO_ROOT/target/KnightLauncher.jar"
@@ -101,6 +122,10 @@ if [[ ! -f "$TARGET_JAR" ]]; then
 fi
 
 DEST_JAR="$TARGET_SK_DIR/KnightLauncher.jar"
+if [[ -f "$DEST_JAR" ]]; then
+  echo "[*] Backing up the installed launcher -> $DEST_JAR.bak (close the launcher before deploying)"
+  cp -f "$DEST_JAR" "$DEST_JAR.bak"
+fi
 echo "[*] Deploying KnightLauncher.jar -> $DEST_JAR..."
 cp -f "$TARGET_JAR" "$DEST_JAR"
 

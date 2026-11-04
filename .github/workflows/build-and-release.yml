@@ -85,10 +85,10 @@ jobs:
           echo "Created deploy.properties from template"
 
       - name: Validate Maven dependencies
-        run: mvn validate
+        run: ./mvnw validate
 
       - name: Build with Maven
-        run: mvn -Denv=prod clean package
+        run: ./mvnw -Denv=prod clean package
 
       - name: Verify class file versions
         run: |
