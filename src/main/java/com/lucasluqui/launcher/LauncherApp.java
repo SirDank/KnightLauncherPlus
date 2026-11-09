@@ -417,9 +417,9 @@ public class LauncherApp
   private synchronized void checkShortcut ()
   {
     // Shortcuts point straight to a Java runtime and to this folder, see if they're still what the launcher uses.
-    // Moving the launcher must rebuild the shortcut too, or it keeps opening nothing from the old folder.
+    // Moving the launcher must rebuild the shortcut too, or it keeps opening nothing from the old folder, and the
+    // version is in there so an update refreshes the shortcut's icon as well.
     // Only a hash is kept around so the username doesn't end up in the logs.
-    // The version is in there so a new release refreshes the shortcut's icon as well.
     String shortcutJava = String.valueOf((JavaUtil.getLauncherJavaExePath() + "|" + LauncherGlobals.USER_DIR + "|" + BuildConfig.getVersion()).hashCode());
     boolean shortcutJavaChanged = !shortcutJava.equals(_settingsManager.getValue("launcher.shortcutJava"));
 
@@ -694,35 +694,12 @@ public class LauncherApp
     List<Display> displays = hardwareAbstractLayer.getDisplays();
     for (int i = 0; i < displays.size(); i++) {
       Display display = displays.get(i);
-      String displayString = display.toString();
-
-      int maxRefreshRate = 0;
-      try {
-        String refreshRateString = displayString.split("Field Rate ")[1].split(" Hz")[0];
-        if (refreshRateString.contains("--")) {
-          maxRefreshRate = Integer.parseInt(
-            refreshRateString.split("--")[1]
-          );
-        } else {
-          maxRefreshRate = Integer.parseInt(
-            refreshRateString.split("-")[1]
-          );
-        }
-        if (maxRefreshRate > SystemUtil.getRefreshRate()) SystemUtil.setRefreshRate(maxRefreshRate);
-      } catch (Exception e) {
-        log.error("Failed to get display max refresh rate", e);
-      }
-
       log.info("Display " + i + ": " + display.toString()
         .trim()
         .replace("\n", ", ")
         .replace("\r", "")
         .replaceAll(" +", " ")
       );
-
-      if (maxRefreshRate > 0) {
-        log.info("Display " + i + " detected max refresh rate: " + maxRefreshRate);
-      }
     }
 
     log.info("---------------------------------");

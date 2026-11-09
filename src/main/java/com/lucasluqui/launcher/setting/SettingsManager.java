@@ -373,8 +373,10 @@ public class SettingsManager
   {
     if (argString.isEmpty()) return argString;
 
-    // A copy: Arrays.asList is fixed-size and can't have elements removed.
+    // iterate through all args. A copy: Arrays.asList is fixed-size and can't have elements removed.
     List<String> args = new ArrayList<>(Arrays.asList(argString.split("\\r?\\n")));
+
+    // filter out stuff we don't want while in extra perf mode.
     if (extraPerfMode) {
       args.removeIf(arg -> arg.startsWith("-Xms") || arg.startsWith("-Xmx"));
     }

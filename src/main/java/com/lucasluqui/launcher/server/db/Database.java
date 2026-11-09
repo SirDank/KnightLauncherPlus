@@ -118,14 +118,23 @@ public final class Database implements AutoCloseable {
             throw new SQLException("The SQLite driver is missing from the launcher", e);
         }
         Connection connection = DriverManager.getConnection(url);
-        try (Statement statement = connection.createStatement()) {
-            statement.execute("PRAGMA foreign_keys = ON");
-            statement.execute("PRAGMA busy_timeout = 5000");
-            if (!url.contains(":memory:")) statement.execute("PRAGMA journal_mode = WAL");
+        try {
+            try (Statement statement = connection.createStatement()) {
+                statement.execute("PRAGMA foreign_keys = ON");
+                statement.execute("PRAGMA busy_timeout = 5000");
+                if (!url.contains(":memory:")) statement.execute("PRAGMA journal_mode = WAL");
+            }
+            Database database = new Database(connection);
+            database.migrate();
+            return database;
+        } catch (Throwable t) {
+            try {
+                connection.close();
+            } catch (SQLException ignored) {
+            }
+            if (t instanceof SQLException sqle) throw sqle;
+            throw new SQLException(t);
         }
-        Database database = new Database(connection);
-        database.migrate();
-        return database;
     }
 
     private void migrate() throws SQLException {
