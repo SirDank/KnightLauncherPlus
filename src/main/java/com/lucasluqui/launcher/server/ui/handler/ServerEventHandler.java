@@ -30,6 +30,8 @@ public class ServerEventHandler {
     @Inject private FlamingoManager _flamingoManager;
     @Inject private LocaleManager _localeManager;
 
+    /** Start, stop and restart actions in progress. */
+    private final java.util.concurrent.atomic.AtomicInteger _busy = new java.util.concurrent.atomic.AtomicInteger();
     private ServerHostUI _ui;
     private Timer _statusTimer;
     private ServerSettingsDialog _settings;
@@ -42,16 +44,19 @@ public class ServerEventHandler {
     public void startServer() {
         int port = parsePort();
         if (port < 0) return;
-        if (_ui != null) {
-            _ui.setStartingState();
-        }
         runServerAction(() -> _hostManager.startServer(port));
     }
 
     public void stopServer() {
+        _busy.incrementAndGet();
+        updateStatus();
         new Thread(() -> {
-            _hostManager.stopServer();
-            SwingUtilities.invokeLater(this::updateStatus);
+            try {
+                _hostManager.stopServer();
+            } finally {
+                _busy.decrementAndGet();
+                SwingUtilities.invokeLater(this::updateStatus);
+            }
         }, "ServerStopThread").start();
     }
 
@@ -70,6 +75,7 @@ public class ServerEventHandler {
         LauncherUI launcherUI = _ctx.getApp().getUI(LauncherUI.class);
         _settings = new ServerSettingsDialog(launcherUI == null ? null : launcherUI.guiFrame, _hostManager, _localeManager,
             () -> {
+                _hostManager.invalidateConfigCache();
                 if (_ui != null) _ui.refreshFromSettings();
                 updateStatus();
             }, this::restartServer);
@@ -78,8 +84,15 @@ public class ServerEventHandler {
 
     /** Runs a start/restart off the EDT and tells the user if the server did not come up. */
     private void runServerAction(java.util.function.BooleanSupplier action) {
+        _busy.incrementAndGet();
+        updateStatus(); // the buttons go off now, not when the thread gets going
         new Thread(() -> {
-            boolean success = action.getAsBoolean();
+            boolean success;
+            try {
+                success = action.getAsBoolean();
+            } finally {
+                _busy.decrementAndGet();
+            }
             SwingUtilities.invokeLater(() -> {
                 updateStatus();
                 if (!success) {
@@ -126,7 +139,7 @@ public class ServerEventHandler {
     public void updateStatus() {
         if (_ui == null) return;
         _ui.setStatus(_hostManager.isServerRunning(), _hostManager.getServerPort(),
-            _hostManager.getActivePlayers(), _hostManager.getUptimeMs());
+            _hostManager.getActivePlayers(), _hostManager.getUptimeMs(), _busy.get() > 0 || _hostManager.isStarting());
     }
 
     /** The port from the server settings (the Server Settings window is where it is changed). */

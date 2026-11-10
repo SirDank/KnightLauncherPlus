@@ -103,13 +103,6 @@ if [[ ! -f deploy.properties ]]; then
   cp deploy.properties.template deploy.properties
 fi
 
-# Compiling needs the game's own jar, which can't be committed: take it from the game install
-# (and refresh it when the game updated).
-if [[ "$SKIP_BUILD" != "true" ]] && ! cmp -s "$TARGET_SK_DIR/code/projectx-pcode.jar" lib/projectx-pcode.jar; then
-  echo "[*] Copying projectx-pcode.jar from the game -> lib/"
-  cp -f "$TARGET_SK_DIR/code/projectx-pcode.jar" lib/projectx-pcode.jar
-fi
-
 if [[ "$SKIP_BUILD" != "true" ]]; then
   echo "[*] Building KnightLauncherPlus (env=$ENV_MODE) via Maven Wrapper..."
   sh ./mvnw -Denv="$ENV_MODE" -DskipTests clean package

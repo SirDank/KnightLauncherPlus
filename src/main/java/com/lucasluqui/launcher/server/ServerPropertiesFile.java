@@ -1,17 +1,20 @@
 package com.lucasluqui.launcher.server;
 
 import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.Writer;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import org.yaml.snakeyaml.DumperOptions;
 import org.yaml.snakeyaml.Yaml;
 
 /**
- * Reads and writes Tortodrone configuration files (server.yml and combat.yml).
+ * Reads and writes Tortodrone configuration files (server.yml and combat.yml). Files are written as UTF-8 through a
+ * temporary file, so a crash never leaves a half-written configuration behind.
  */
 public final class ServerPropertiesFile {
 
@@ -23,120 +26,110 @@ public final class ServerPropertiesFile {
         return !preferred.isFile() && fallback.isFile() ? fallback : preferred;
     }
 
+    /** The settings the launcher shows, from server.yml and combat.yml (missing files and keys are skipped). */
     public static Map<String, String> read(File serverYml) throws IOException {
         Map<String, String> result = new LinkedHashMap<>();
-        if (serverYml != null && serverYml.isFile()) {
-            Yaml yaml = new Yaml();
-            try (InputStream in = new FileInputStream(serverYml)) {
-                Object loaded = yaml.load(in);
-                if (loaded instanceof Map) {
-                    @SuppressWarnings("unchecked")
-                    Map<String, Object> map = (Map<String, Object>) loaded;
-                    if (map.containsKey("max-clients")) {
-                        result.put("server.maxClients", String.valueOf(map.get("max-clients")));
-                    }
-                    if (map.containsKey("welcome-message")) {
-                        result.put("server.welcomeMessage", String.valueOf(map.get("welcome-message")));
-                    }
-                    if (map.containsKey("startup-map")) {
-                        result.put("server.startupMap", String.valueOf(map.get("startup-map")));
-                    }
-                    if (map.containsKey("log-mode")) {
-                        result.put("server.logMode", String.valueOf(map.get("log-mode")));
-                    }
-                    if (map.containsKey("server-ip")) {
-                        String ip = String.valueOf(map.get("server-ip"));
-                        result.put("server.allowLan", String.valueOf("0.0.0.0".equals(ip)));
-                    }
-                }
-            }
-
-            File combatYml = new File(serverYml.getParentFile(), "combat.yml");
-            if (combatYml.isFile()) {
-                try (InputStream in = new FileInputStream(combatYml)) {
-                    Object loaded = yaml.load(in);
-                    if (loaded instanceof Map) {
-                        @SuppressWarnings("unchecked")
-                        Map<String, Object> map = (Map<String, Object>) loaded;
-                        if (map.containsKey("dodgeCooldownMs")) {
-                            result.put("combat.dodgeCooldownMs", String.valueOf(map.get("dodgeCooldownMs")));
-                        }
-                    }
-                }
-            }
+        Map<String, Object> server = load(serverYml);
+        copy(server, "max-clients", result, "server.maxClients");
+        copy(server, "welcome-message", result, "server.welcomeMessage");
+        copy(server, "startup-map", result, "server.startupMap");
+        copy(server, "log-mode", result, "server.logMode");
+        if (server.containsKey("server-ip")) {
+            result.put("server.allowLan", String.valueOf("0.0.0.0".equals(String.valueOf(server.get("server-ip")))));
+        }
+        if (serverYml != null) {
+            copy(load(new File(serverYml.getParentFile(), "combat.yml")), "dodgeCooldownMs", result, "combat.dodgeCooldownMs");
         }
         return result;
     }
 
     public static void write(File serverYml, Map<String, String> values) throws IOException {
-        if (serverYml.getParentFile() != null) {
-            serverYml.getParentFile().mkdirs();
-        }
-
-        DumperOptions options = new DumperOptions();
-        options.setDefaultFlowStyle(DumperOptions.FlowStyle.BLOCK);
-        options.setPrettyFlow(true);
-        Yaml yaml = new Yaml(options);
-
-        Map<String, Object> serverMap = new LinkedHashMap<>();
-        if (serverYml.isFile()) {
-            try (InputStream in = new FileInputStream(serverYml)) {
-                Object loaded = yaml.load(in);
-                if (loaded instanceof Map) {
-                    @SuppressWarnings("unchecked")
-                    Map<String, Object> map = (Map<String, Object>) loaded;
-                    serverMap.putAll(map);
-                }
-            }
-        }
-
-        if (values.containsKey("server.maxClients")) {
-            try {
-                serverMap.put("max-clients", Integer.parseInt(values.get("server.maxClients")));
-            } catch (NumberFormatException ignored) {}
-        }
-        if (values.containsKey("server.welcomeMessage")) {
-            serverMap.put("welcome-message", values.get("server.welcomeMessage"));
-        }
-        if (values.containsKey("server.startupMap")) {
-            serverMap.put("startup-map", values.get("server.startupMap"));
-        }
-        if (values.containsKey("server.logMode")) {
-            serverMap.put("log-mode", values.get("server.logMode"));
-        }
+        Map<String, Object> server = load(serverYml);
+        putInt(server, "max-clients", values.get("server.maxClients"));
+        putText(server, "welcome-message", values.get("server.welcomeMessage"));
+        putText(server, "startup-map", values.get("server.startupMap"));
+        putText(server, "log-mode", values.get("server.logMode"));
         if (values.containsKey("server.allowLan")) {
-            boolean lan = Boolean.parseBoolean(values.get("server.allowLan"));
-            serverMap.put("server-ip", lan ? "0.0.0.0" : "127.0.0.1");
+            server.put("server-ip", Boolean.parseBoolean(values.get("server.allowLan")) ? "0.0.0.0" : "127.0.0.1");
         }
-        serverMap.put("webui-enabled", false);
-        Object httpPort = serverMap.get("webui/content_url-port");
-        if (httpPort == null || Integer.valueOf(8080).equals(httpPort) || "8080".equals(String.valueOf(httpPort))) {
-            serverMap.put("webui/content_url-port", 0);
-        }
-
-        try (FileWriter writer = new FileWriter(serverYml)) {
-            yaml.dump(serverMap, writer);
-        }
+        keepLauncherManaged(server);
+        dump(serverYml, server);
 
         if (values.containsKey("combat.dodgeCooldownMs")) {
             File combatYml = new File(serverYml.getParentFile(), "combat.yml");
-            Map<String, Object> combatMap = new LinkedHashMap<>();
-            if (combatYml.isFile()) {
-                try (InputStream in = new FileInputStream(combatYml)) {
-                    Object loaded = yaml.load(in);
-                    if (loaded instanceof Map) {
-                        @SuppressWarnings("unchecked")
-                        Map<String, Object> map = (Map<String, Object>) loaded;
-                        combatMap.putAll(map);
+            Map<String, Object> combat = load(combatYml);
+            putInt(combat, "dodgeCooldownMs", values.get("combat.dodgeCooldownMs"));
+            dump(combatYml, combat);
+        }
+    }
+
+    /** What the launcher decides on every start: where the server listens (the port and LAN choice live in the launcher). */
+    public static void applyRuntime(File serverYml, int port, boolean allowLan) throws IOException {
+        Map<String, Object> server = load(serverYml);
+        server.put("server-port", port);
+        server.put("server-ip", allowLan ? "0.0.0.0" : "127.0.0.1");
+        keepLauncherManaged(server);
+        dump(serverYml, server);
+    }
+
+    /** No web UI, and the news listener never on 8080, which Steam's web helper owns (0 lets the OS pick a free port). */
+    private static void keepLauncherManaged(Map<String, Object> server) {
+        server.put("webui-enabled", false);
+        Object httpPort = server.get("webui/content_url-port");
+        if (httpPort == null || "8080".equals(String.valueOf(httpPort))) {
+            server.put("webui/content_url-port", 0);
+        }
+    }
+
+    /** Rewrites the file without its comments (and in the launcher's own layout), keeping every setting. */
+    public static void stripComments(File yml) throws IOException {
+        dump(yml, load(yml));
+    }
+
+    private static Map<String, Object> load(File file) throws IOException {
+        Map<String, Object> map = new LinkedHashMap<>();
+        if (file != null && file.isFile()) {
+            try (InputStream in = Files.newInputStream(file.toPath())) {
+                Object loaded = new Yaml().load(in);
+                if (loaded instanceof Map) {
+                    for (Map.Entry<?, ?> entry : ((Map<?, ?>) loaded).entrySet()) {
+                        map.put(String.valueOf(entry.getKey()), entry.getValue());
                     }
                 }
+            } catch (RuntimeException e) { // malformed YAML
+                throw new IOException(file.getName() + " is not valid YAML: " + e.getMessage(), e);
             }
-            try {
-                combatMap.put("dodgeCooldownMs", Integer.parseInt(values.get("combat.dodgeCooldownMs")));
-            } catch (NumberFormatException ignored) {}
-            try (FileWriter writer = new FileWriter(combatYml)) {
-                yaml.dump(combatMap, writer);
-            }
+        }
+        return map;
+    }
+
+    private static void dump(File file, Map<String, Object> map) throws IOException {
+        File dir = file.getAbsoluteFile().getParentFile();
+        Files.createDirectories(dir.toPath());
+        DumperOptions options = new DumperOptions();
+        options.setDefaultFlowStyle(DumperOptions.FlowStyle.BLOCK);
+        options.setPrettyFlow(true);
+        File temp = new File(dir, file.getName() + ".tmp");
+        try (Writer out = Files.newBufferedWriter(temp.toPath(), StandardCharsets.UTF_8)) {
+            new Yaml(options).dump(map, out);
+        }
+        Files.move(temp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING);
+    }
+
+    private static void copy(Map<String, Object> from, String yamlKey, Map<String, String> to, String key) {
+        if (from.containsKey(yamlKey)) to.put(key, String.valueOf(from.get(yamlKey)));
+    }
+
+    private static void putText(Map<String, Object> map, String key, String value) {
+        if (value != null) map.put(key, value);
+    }
+
+    private static void putInt(Map<String, Object> map, String key, String value) {
+        if (value == null) return;
+        try {
+            map.put(key, Integer.parseInt(value.trim()));
+        } catch (NumberFormatException ignored) {
+            // Validation happens before saving; a bad number leaves the old value.
         }
     }
 }

@@ -2,8 +2,6 @@ package com.lucasluqui.launcher.server;
 
 import java.io.BufferedReader;
 import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -20,10 +18,10 @@ import java.sql.Statement;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
-import java.util.LinkedHashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -32,14 +30,12 @@ import java.util.function.Consumer;
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
 import com.lucasluqui.launcher.LauncherGlobals;
-import com.lucasluqui.launcher.ModuleManager;
+import com.lucasluqui.launcher.LocaleManager;
 import com.lucasluqui.launcher.flamingo.FlamingoManager;
 import com.lucasluqui.launcher.flamingo.data.Server;
 import com.lucasluqui.launcher.setting.SettingsManager;
 import com.lucasluqui.launcher.setting.ui.handler.SettingsEventHandler;
 import com.lucasluqui.util.JavaUtil;
-import org.yaml.snakeyaml.DumperOptions;
-import org.yaml.snakeyaml.Yaml;
 
 import static com.lucasluqui.launcher.Log.log;
 
@@ -55,7 +51,7 @@ public class ServerHostManager {
 
     @Inject private SettingsManager _settingsManager;
     @Inject private FlamingoManager _flamingoManager;
-    @Inject private ModuleManager _moduleManager;
+    @Inject private LocaleManager _localeManager;
 
     private volatile Process _process;
     private volatile Writer _commands;
@@ -69,11 +65,21 @@ public class ServerHostManager {
     private volatile String _publicKey = null;
     private volatile int _port = ServerNet.DEFAULT_PORT;
     private volatile long _startedAt = 0;
+    /** Serializes start, stop, restart and reset. Never held by anything the UI calls on its own thread. */
+    private final Object _lifecycle = new Object();
+    private final Object _commandLock = new Object();
+    private volatile int _maxClients = -1;
     private final List<Consumer<String>> _logListeners = new CopyOnWriteArrayList<>();
     private final LinkedList<String> _logHistory = new LinkedList<>();
     private Writer _logFile;
 
-    public synchronized boolean startServer(int port) {
+    public boolean startServer(int port) {
+        synchronized (_lifecycle) {
+            return startLocked(port);
+        }
+    }
+
+    private boolean startLocked(int port) {
         if (isServerRunning()) {
             return true;
         }
@@ -84,16 +90,13 @@ public class ServerHostManager {
         }
 
         File serverDir = new File(LauncherGlobals.USER_DIR, "KnightLauncher/server");
-        File jarFile = new File(serverDir, "tortodrone.jar");
         File configFile = new File(serverDir, "config/server.yml");
 
-        if (!jarFile.isFile() || !configFile.isFile()) {
-            _moduleManager.loadTortodrone();
+        String problem = TortodroneInstaller.ensureInstalled(this::dispatchLog); // quick when the engine is already current
+        if (problem != null) {
+            return fail(problem);
         }
 
-        if (!jarFile.isFile()) {
-            return fail("Could not find or extract tortodrone.jar in " + serverDir);
-        }
 
         syncServerConfig(configFile, port, isLanAllowed());
 
@@ -175,34 +178,8 @@ public class ServerHostManager {
     private void syncServerConfig(File configFile, int port, boolean allowLan) {
         if (!configFile.isFile()) return;
         try {
-            Yaml yaml = new Yaml();
-            Map<String, Object> map = new LinkedHashMap<>();
-            try (InputStream in = new FileInputStream(configFile)) {
-                Object loaded = yaml.load(in);
-                if (loaded instanceof Map) {
-                    @SuppressWarnings("unchecked")
-                    Map<String, Object> casted = (Map<String, Object>) loaded;
-                    map.putAll(casted);
-                }
-            }
-            map.put("server-port", port);
-            map.put("server-ip", allowLan ? "0.0.0.0" : "127.0.0.1");
-            map.put("webui-enabled", false);
-            // Steam (steamwebhelper.exe) binds port 8080 by default. Set HTTP/news listener port to 0
-            // so the OS selects an ephemeral port without colliding with Steam.
-            Object httpPort = map.get("webui/content_url-port");
-            if (httpPort == null || Integer.valueOf(8080).equals(httpPort) || "8080".equals(String.valueOf(httpPort))) {
-                map.put("webui/content_url-port", 0);
-            }
-
-            DumperOptions options = new DumperOptions();
-            options.setDefaultFlowStyle(DumperOptions.FlowStyle.BLOCK);
-            options.setPrettyFlow(true);
-            Yaml dumper = new Yaml(options);
-            try (FileWriter writer = new FileWriter(configFile)) {
-                dumper.dump(map, writer);
-            }
-        } catch (Exception e) {
+            ServerPropertiesFile.applyRuntime(configFile, port, allowLan);
+        } catch (IOException e) {
             log.warning("Could not sync server config: " + e.getMessage());
         }
     }
@@ -299,7 +276,7 @@ public class ServerHostManager {
             _stopRequested = true;
             starting.destroyForcibly();
         }
-        synchronized (this) {
+        synchronized (_lifecycle) {
             stopLocked();
         }
     }
@@ -317,21 +294,33 @@ public class ServerHostManager {
             process.destroyForcibly();
             Thread.currentThread().interrupt();
         }
-        _process = null;
-        _commands = null;
-        _ready = false;
-        _players = 0;
-        _startedAt = 0;
+        synchronized (this) {
+            if (_process == process) {
+                _process = null;
+                _commands = null;
+                _ready = false;
+                _players = 0;
+                _startedAt = 0;
+            }
+        }
         dispatchLog("[INFO] Server stopped.");
         closeLogFile();
     }
 
-    public synchronized boolean restartServer(int port) {
-        stopServer();
-        return startServer(port);
+    public boolean restartServer(int port) {
+        synchronized (_lifecycle) {
+            stopServer();
+            return startServer(port);
+        }
     }
 
-    public synchronized boolean resetServerData() {
+    public boolean resetServerData() {
+        synchronized (_lifecycle) {
+            return resetLocked();
+        }
+    }
+
+    private boolean resetLocked() {
         stopServer();
         File serverDir = new File(LauncherGlobals.USER_DIR, "KnightLauncher/server");
         File dataDir = new File(serverDir, "data");
@@ -377,30 +366,57 @@ public class ServerHostManager {
         }
     }
 
+    /** True from the moment the process is launched until it is ready (or has failed). */
+    public boolean isStarting() {
+        return _starting;
+    }
+
     public int getActivePlayers() {
         return _players;
     }
 
+    /** The player limit from server.yml, read once (the status line asks every second); see {@link #invalidateConfigCache()}. */
     public int getMaxClients() {
-        File file = ServerPropertiesFile.resolve(new File(LauncherGlobals.USER_DIR));
+        int cached = _maxClients;
+        if (cached > 0) return cached;
+        int value = 16;
         try {
-            Map<String, String> map = ServerPropertiesFile.read(file);
-            String val = map.get("server.maxClients");
-            if (val != null) {
-                return Integer.parseInt(val.trim());
-            }
-        } catch (Exception ignored) {}
-        return 16;
+            String text = ServerPropertiesFile.read(ServerPropertiesFile.resolve(new File(LauncherGlobals.USER_DIR))).get("server.maxClients");
+            if (text != null) value = Integer.parseInt(text.trim());
+        } catch (IOException | NumberFormatException ignored) {
+            // The default stands.
+        }
+        _maxClients = value;
+        return value;
+    }
+
+    /** Forget what was read from the server configuration (it was just saved). */
+    public void invalidateConfigCache() {
+        _maxClients = -1;
     }
 
     public static record ServerAccount(int id, String username, boolean gameMaster, long createdAt, int knightCount, String knights) {}
 
+    private static File databaseFile() {
+        return new File(LauncherGlobals.USER_DIR, "KnightLauncher/server/data/tortodrone.db");
+    }
+
+    /** Opens the server's database, waiting a moment (not failing at once) if the running server holds it. */
+    private static Connection connect(boolean readOnly) throws java.sql.SQLException {
+        Properties properties = new Properties();
+        if (readOnly) properties.setProperty("open_mode", "1"); // SQLITE_OPEN_READONLY
+        Connection connection = DriverManager.getConnection("jdbc:sqlite:" + databaseFile().getAbsolutePath(), properties);
+        try (Statement statement = connection.createStatement()) {
+            statement.execute("PRAGMA busy_timeout = 3000");
+            if (!readOnly) statement.execute("PRAGMA foreign_keys = ON");
+        }
+        return connection;
+    }
+
     public List<ServerAccount> getAccounts() {
         List<ServerAccount> list = new ArrayList<>();
-        File dbFile = new File(LauncherGlobals.USER_DIR, "KnightLauncher/server/data/tortodrone.db");
-        if (!dbFile.isFile()) return list;
-        String url = "jdbc:sqlite:" + dbFile.getAbsolutePath();
-        try (Connection conn = DriverManager.getConnection(url);
+        if (!databaseFile().isFile()) return list;
+        try (Connection conn = connect(true);
              Statement stmt = conn.createStatement();
              ResultSet rs = stmt.executeQuery(
                  "SELECT a.id, a.username, a.game_master, a.created_at, " +
@@ -423,57 +439,79 @@ public class ServerHostManager {
         return list;
     }
 
+    /**
+     * Creates an account. A running server does it itself (it asks for the password twice on its console; the server
+     * is the only writer of its database while it runs). Without a running server there is nobody to hash the
+     * password, so this needs the server.
+     *
+     * @return Whether the account exists afterwards (waits a moment for the server to finish).
+     */
+    public boolean createAccount(String username, String password, boolean gameMaster) {
+        if (!isServerRunning()) return false;
+        if (accountExists(username)) return false; // the password lines would reach the console as commands
+        if (!sendRaw("account create " + username + (gameMaster ? " gm" : ""))) return false;
+        sendRaw(password);
+        sendRaw(password);
+        for (int i = 0; i < 20; i++) {
+            if (accountExists(username)) return true;
+            try {
+                Thread.sleep(150);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
+        }
+        return false;
+    }
+
+    private boolean accountExists(String username) {
+        for (ServerAccount account : getAccounts()) {
+            if (account.username().equalsIgnoreCase(username)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Flips the account's game master flag. A running server does it itself (it keeps caches and revisions that
+     * writing the database behind its back would leave stale); a stopped one is edited directly.
+     */
     public boolean toggleGameMaster(int accountId, String username, boolean currentGm) {
         boolean newGm = !currentGm;
         if (isServerRunning()) {
-            sendCommand("gm " + username + " " + (newGm ? "true" : "false"));
+            return sendRaw("gm " + username + " " + newGm);
         }
-        File dbFile = new File(LauncherGlobals.USER_DIR, "KnightLauncher/server/data/tortodrone.db");
-        if (dbFile.isFile()) {
-            String url = "jdbc:sqlite:" + dbFile.getAbsolutePath();
-            try (Connection conn = DriverManager.getConnection(url);
-                 PreparedStatement ps = conn.prepareStatement("UPDATE accounts SET game_master = ? WHERE id = ?")) {
-                ps.setInt(1, newGm ? 1 : 0);
-                ps.setInt(2, accountId);
-                ps.executeUpdate();
-                return true;
-            } catch (Exception e) {
-                log.warning("Could not update game_master in tortodrone.db: " + e.getMessage());
-            }
+        if (!databaseFile().isFile()) return false;
+        try (Connection conn = connect(false);
+             PreparedStatement ps = conn.prepareStatement("UPDATE accounts SET game_master = ? WHERE id = ?")) {
+            ps.setInt(1, newGm ? 1 : 0);
+            ps.setInt(2, accountId);
+            return ps.executeUpdate() == 1;
+        } catch (Exception e) {
+            log.warning("Could not update game_master in tortodrone.db: " + e.getMessage());
+            return false;
         }
-        return isServerRunning();
     }
 
+    /** Deletes the account with its knights: by the running server itself (it asks to confirm by typing the name), else directly. */
     public boolean deleteAccount(int accountId, String username) {
         if (isServerRunning()) {
-            sendRaw("account delete " + username);
-            sendRaw(username);
+            return sendRaw("account delete " + username) && sendRaw(username);
         }
-        File dbFile = new File(LauncherGlobals.USER_DIR, "KnightLauncher/server/data/tortodrone.db");
-        if (dbFile.isFile()) {
-            String url = "jdbc:sqlite:" + dbFile.getAbsolutePath();
-            try (Connection conn = DriverManager.getConnection(url)) {
-                try (Statement s = conn.createStatement()) {
-                    s.execute("PRAGMA foreign_keys = ON");
-                }
-                try (PreparedStatement ps = conn.prepareStatement("DELETE FROM accounts WHERE id = ?")) {
-                    ps.setInt(1, accountId);
-                    ps.executeUpdate();
-                    return true;
-                }
-            } catch (Exception e) {
-                log.warning("Could not delete account in tortodrone.db: " + e.getMessage());
-            }
+        if (!databaseFile().isFile()) return false;
+        try (Connection conn = connect(false);
+             PreparedStatement ps = conn.prepareStatement("DELETE FROM accounts WHERE id = ?")) {
+            ps.setInt(1, accountId);
+            return ps.executeUpdate() == 1;
+        } catch (Exception e) {
+            log.warning("Could not delete account in tortodrone.db: " + e.getMessage());
+            return false;
         }
-        return isServerRunning();
     }
 
     public List<String> getAllKnights() {
         List<String> list = new ArrayList<>();
-        File dbFile = new File(LauncherGlobals.USER_DIR, "KnightLauncher/server/data/tortodrone.db");
-        if (!dbFile.isFile()) return list;
-        String url = "jdbc:sqlite:" + dbFile.getAbsolutePath();
-        try (Connection conn = DriverManager.getConnection(url);
+        if (!databaseFile().isFile()) return list;
+        try (Connection conn = connect(true);
              Statement stmt = conn.createStatement();
              ResultSet rs = stmt.executeQuery("SELECT DISTINCT name FROM knights ORDER BY name ASC")) {
             while (rs.next()) {
@@ -523,11 +561,11 @@ public class ServerHostManager {
         return _lastError;
     }
 
-    public synchronized String sendCommand(String command) {
+    public String sendCommand(String command) {
         if (!isServerRunning()) {
-            return "Server is not running.";
+            return _localeManager.getValue("m.server_cmd_not_running");
         }
-        return sendRaw(command) ? "" : "Could not reach the server process.";
+        return sendRaw(command) ? "" : _localeManager.getValue("m.server_cmd_unreachable");
     }
 
     public boolean sendRaw(String command) {
@@ -535,12 +573,14 @@ public class ServerHostManager {
         if (commands == null) {
             return false;
         }
-        try {
-            commands.write(command.replace('\n', ' ').replace('\r', ' ') + "\n");
-            commands.flush();
-            return true;
-        } catch (IOException e) {
-            return false;
+        synchronized (_commandLock) { // lines of one multi-line exchange (a password prompt) must not interleave
+            try {
+                commands.write(command.replace('\n', ' ').replace('\r', ' ') + "\n");
+                commands.flush();
+                return true;
+            } catch (IOException e) {
+                return false;
+            }
         }
     }
 

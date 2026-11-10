@@ -100,10 +100,7 @@ public class ServerHostUI extends BaseUI {
         startButton.setForeground(Color.WHITE);
         startButton.setFocusPainted(false);
         startButton.putClientProperty(FlatClientProperties.STYLE, "arc: 6; borderWidth: 0; margin: 4,10,4,10; disabledBackground: #1E1E1E; disabledText: #777777");
-        startButton.addActionListener(e -> {
-            setStartingState();
-            eventHandler.startServer();
-        });
+        startButton.addActionListener(e -> eventHandler.startServer());
         leftControls.add(startButton);
         leftControls.add(javax.swing.Box.createHorizontalStrut(Scale.px(8)));
 
@@ -227,13 +224,8 @@ public class ServerHostUI extends BaseUI {
         }
     }
 
-    public void setStartingState() {
-        startButton.setEnabled(false);
-        stopButton.setEnabled(false);
-        restartButton.setEnabled(false);
-    }
-
-    public void setStatus(boolean running, int port, int players, long uptimeMs) {
+    /** @param busy A start, stop or restart is under way: the three server buttons stay off until it is done. */
+    public void setStatus(boolean running, int port, int players, long uptimeMs, boolean busy) {
         if (statusBadge == null) return;
 
         if (_blocked) {
@@ -243,6 +235,13 @@ public class ServerHostUI extends BaseUI {
             connectButton.setEnabled(false);
             settingsButton.setEnabled(false);
             copyLanButton.setEnabled(false);
+        } else if (busy) {
+            startButton.setEnabled(false);
+            stopButton.setEnabled(false);
+            restartButton.setEnabled(false);
+            connectButton.setEnabled(false);
+            settingsButton.setEnabled(true);
+            copyLanButton.setEnabled(true);
         } else if (running) {
             setStatusDot(COLOR_RUNNING);
             statusBadge.setToolTipText(_localeManager.getValue("m.server_running"));

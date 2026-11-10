@@ -94,7 +94,12 @@ public class ServerSettingsDialog extends JDialog {
             if (editor instanceof JCheckBox) {
                 ((JCheckBox) editor).setSelected(Boolean.parseBoolean(value));
             } else if (editor instanceof JComboBox) {
-                ((JComboBox<?>) editor).setSelectedItem(value);
+                @SuppressWarnings("unchecked")
+                JComboBox<String> box = (JComboBox<String>) editor;
+                boolean listed = false;
+                for (int i = 0; i < box.getItemCount() && !listed; i++) listed = box.getItemAt(i).equals(value);
+                if (!listed) box.addItem(value); // a value set by hand in server.yml is kept, not replaced by the first item
+                box.setSelectedItem(value);
             } else if (editor instanceof JTextField) {
                 ((JTextField) editor).setText(value);
             } else if (editor.getClientProperty("float") != null) {
@@ -203,7 +208,8 @@ public class ServerSettingsDialog extends JDialog {
         createRow.add(gmCheck);
 
         // Accounts Table Section
-        String[] cols = new String[] { "ID", "Username", "GM", "Knights", "Created" };
+        String[] cols = new String[] { locale.getValue("ss.col.id"), locale.getValue("ss.col.username"), locale.getValue("ss.col.gm"),
+            locale.getValue("ss.col.knights"), locale.getValue("ss.col.created") };
         DefaultTableModel accountModel = new DefaultTableModel(cols, 0) {
             @Override
             public boolean isCellEditable(int row, int col) {
@@ -235,11 +241,11 @@ public class ServerSettingsDialog extends JDialog {
             accountListCache.addAll(accounts);
             for (ServerHostManager.ServerAccount acc : accounts) {
                 String createdStr = acc.createdAt() > 0 ? dateFormat.format(new Date(acc.createdAt())) : "--";
-                String knightsStr = acc.knights() != null && !acc.knights().isEmpty() ? acc.knights() : (acc.knightCount() == 0 ? "None" : acc.knightCount() + " knights");
+                String knightsStr = acc.knights() != null && !acc.knights().isEmpty() ? acc.knights() : (acc.knightCount() == 0 ? locale.getValue("ss.value.none") : locale.getValue("ss.value.knights_count", String.valueOf(acc.knightCount())));
                 accountModel.addRow(new Object[] {
                     acc.id(),
                     acc.username(),
-                    acc.gameMaster() ? "Yes" : "No",
+                    locale.getValue(acc.gameMaster() ? "ss.value.yes" : "ss.value.no"),
                     knightsStr,
                     createdStr
                 });
@@ -262,33 +268,35 @@ public class ServerSettingsDialog extends JDialog {
 
         JButton createBtn = button("b.ss_account_create", FontAwesome.USER_PLUS, CustomColors.ACCENT, e -> {
             String u = newUserField.getText().trim();
-            String p = new String(newPassField.getPassword()).trim();
+            String p = new String(newPassField.getPassword());
             if (u.isEmpty() || p.isEmpty()) {
-                JOptionPane.showMessageDialog(this, "Username and password cannot be empty.", "Error", JOptionPane.ERROR_MESSAGE);
+                JOptionPane.showMessageDialog(this, locale.getValue("m.ss_acc_empty"), locale.getValue("t.ss_error"), JOptionPane.ERROR_MESSAGE);
                 return;
             }
             if (!u.matches("[A-Za-z][A-Za-z0-9_-]{2,31}")) {
-                JOptionPane.showMessageDialog(this, "Username must be 3–32 characters, starting with a letter,\nfollowed by letters, numbers, underscores, or hyphens.", "Invalid Username", JOptionPane.ERROR_MESSAGE);
+                JOptionPane.showMessageDialog(this, locale.getValue("m.ss_acc_invalid_user"), locale.getValue("t.ss_acc_invalid_user"), JOptionPane.ERROR_MESSAGE);
                 return;
             }
             if (p.length() < 8 || p.length() > 128) {
-                JOptionPane.showMessageDialog(this, "Password must be between 8 and 128 characters.", "Invalid Password", JOptionPane.ERROR_MESSAGE);
+                JOptionPane.showMessageDialog(this, locale.getValue("m.ss_acc_invalid_pass"), locale.getValue("t.ss_acc_invalid_pass"), JOptionPane.ERROR_MESSAGE);
                 return;
             }
             if (!hostManager.isServerRunning()) {
-                JOptionPane.showMessageDialog(this, "Server must be running to create accounts.", "Server Offline", JOptionPane.WARNING_MESSAGE);
+                JOptionPane.showMessageDialog(this, locale.getValue("m.ss_need_running_create"), locale.getValue("t.ss_offline"), JOptionPane.WARNING_MESSAGE);
                 return;
             }
-            hostManager.sendRaw("account create " + u + (gmCheck.isSelected() ? " gm" : ""));
-            hostManager.sendRaw(p);
-            hostManager.sendRaw(p);
+            boolean gm = gmCheck.isSelected();
             newUserField.setText("");
             newPassField.setText("");
-            JOptionPane.showMessageDialog(this, "Account create command dispatched: " + u, "Success", JOptionPane.INFORMATION_MESSAGE);
             new Thread(() -> {
-                try { Thread.sleep(600); } catch (InterruptedException ignored) {}
-                javax.swing.SwingUtilities.invokeLater(reloadAccounts);
-            }).start();
+                boolean created = hostManager.createAccount(u, p, gm);
+                javax.swing.SwingUtilities.invokeLater(() -> {
+                    reloadAccounts.run();
+                    JOptionPane.showMessageDialog(this, locale.getValue(created ? "m.ss_acc_created" : "m.ss_acc_create_failed", u),
+                        locale.getValue(created ? "t.ss_success" : "t.ss_error"),
+                        created ? JOptionPane.INFORMATION_MESSAGE : JOptionPane.ERROR_MESSAGE);
+                });
+            }, "ServerAccountCreate").start();
         });
         createRow.add(createBtn);
         panel.add(createRow);
@@ -311,28 +319,31 @@ public class ServerSettingsDialog extends JDialog {
         JButton toggleGmBtn = button("b.ss_account_gm_toggle", FontAwesome.SHIELD, CustomColors.INTERFACE_BUTTON_BACKGROUND, e -> {
             int row = accountTable.getSelectedRow();
             if (row < 0 || row >= accountListCache.size()) {
-                JOptionPane.showMessageDialog(this, "Please select an account from the list.", "No Selection", JOptionPane.WARNING_MESSAGE);
+                JOptionPane.showMessageDialog(this, locale.getValue("m.ss_select_account"), locale.getValue("t.ss_no_selection"), JOptionPane.WARNING_MESSAGE);
                 return;
             }
             ServerHostManager.ServerAccount acc = accountListCache.get(row);
-            hostManager.toggleGameMaster(acc.id(), acc.username(), acc.gameMaster());
-            reloadAccounts.run();
+            if (!hostManager.toggleGameMaster(acc.id(), acc.username(), acc.gameMaster())) {
+                JOptionPane.showMessageDialog(this, locale.getValue("m.ss_gm_failed", acc.username()), locale.getValue("t.ss_error"), JOptionPane.ERROR_MESSAGE);
+            }
+            reloadAccountsSoon(reloadAccounts);
         });
         tableActions.add(toggleGmBtn);
 
         JButton deleteAccBtn = button("b.ss_account_delete", FontAwesome.TRASH, new Color(180, 40, 40), e -> {
             int row = accountTable.getSelectedRow();
             if (row < 0 || row >= accountListCache.size()) {
-                JOptionPane.showMessageDialog(this, "Please select an account from the list.", "No Selection", JOptionPane.WARNING_MESSAGE);
+                JOptionPane.showMessageDialog(this, locale.getValue("m.ss_select_account"), locale.getValue("t.ss_no_selection"), JOptionPane.WARNING_MESSAGE);
                 return;
             }
             ServerHostManager.ServerAccount acc = accountListCache.get(row);
-            int confirm = JOptionPane.showConfirmDialog(this,
-                "Are you sure you want to delete account '" + acc.username() + "'?\nThis will remove all associated knights and characters.",
-                "Delete Account", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+            int confirm = JOptionPane.showConfirmDialog(this, locale.getValue("m.ss_delete_confirm", acc.username()),
+                locale.getValue("t.ss_delete_account"), JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
             if (confirm == JOptionPane.YES_OPTION) {
-                hostManager.deleteAccount(acc.id(), acc.username());
-                reloadAccounts.run();
+                if (!hostManager.deleteAccount(acc.id(), acc.username())) {
+                    JOptionPane.showMessageDialog(this, locale.getValue("m.ss_delete_failed", acc.username()), locale.getValue("t.ss_error"), JOptionPane.ERROR_MESSAGE);
+                }
+                reloadAccountsSoon(reloadAccounts);
             }
         });
         tableActions.add(deleteAccBtn);
@@ -365,17 +376,17 @@ public class ServerSettingsDialog extends JDialog {
         JButton grantBtn = button("b.ss_currency_grant", FontAwesome.PLUS_CIRCLE, CustomColors.INTERFACE_BUTTON_BACKGROUND, e -> {
             String k = knightField.getText().trim();
             if (k.isEmpty()) {
-                JOptionPane.showMessageDialog(this, "Knight name is required.", "Error", JOptionPane.ERROR_MESSAGE);
+                JOptionPane.showMessageDialog(this, locale.getValue("m.ss_knight_required"), locale.getValue("t.ss_error"), JOptionPane.ERROR_MESSAGE);
                 return;
             }
             if (!hostManager.isServerRunning()) {
-                JOptionPane.showMessageDialog(this, "Server must be running to grant currency.", "Server Offline", JOptionPane.WARNING_MESSAGE);
+                JOptionPane.showMessageDialog(this, locale.getValue("m.ss_need_running_grant"), locale.getValue("t.ss_offline"), JOptionPane.WARNING_MESSAGE);
                 return;
             }
             String type = String.valueOf(currType.getSelectedItem());
             long amt = ((Number) currAmount.getValue()).longValue();
             hostManager.sendCommand("grant " + k + " " + type + " " + amt);
-            JOptionPane.showMessageDialog(this, "Granted " + amt + " " + type + " to " + k, "Granted", JOptionPane.INFORMATION_MESSAGE);
+            JOptionPane.showMessageDialog(this, locale.getValue("m.ss_granted", new String[]{String.valueOf(amt), type, k}), locale.getValue("t.ss_success"), JOptionPane.INFORMATION_MESSAGE);
         });
         currRow.add(grantBtn);
         panel.add(currRow);
@@ -393,7 +404,7 @@ public class ServerSettingsDialog extends JDialog {
         itemRow.add(itemKnightField);
 
         JTextField itemConfigField = new JTextField(16);
-        itemConfigField.putClientProperty(FlatClientProperties.PLACEHOLDER_TEXT, "Proto Sword (or path)");
+        itemConfigField.putClientProperty(FlatClientProperties.PLACEHOLDER_TEXT, locale.getValue("ss.item.placeholder"));
         styleField(itemConfigField);
         itemRow.add(itemConfigField);
 
@@ -404,16 +415,16 @@ public class ServerSettingsDialog extends JDialog {
             String k = itemKnightField.getText().trim();
             String item = itemConfigField.getText().trim();
             if (k.isEmpty() || item.isEmpty()) {
-                JOptionPane.showMessageDialog(this, "Knight name and item are required.", "Error", JOptionPane.ERROR_MESSAGE);
+                JOptionPane.showMessageDialog(this, locale.getValue("m.ss_item_required"), locale.getValue("t.ss_error"), JOptionPane.ERROR_MESSAGE);
                 return;
             }
             if (!hostManager.isServerRunning()) {
-                JOptionPane.showMessageDialog(this, "Server must be running to grant items.", "Server Offline", JOptionPane.WARNING_MESSAGE);
+                JOptionPane.showMessageDialog(this, locale.getValue("m.ss_need_running_item"), locale.getValue("t.ss_offline"), JOptionPane.WARNING_MESSAGE);
                 return;
             }
             int count = ((Number) itemCount.getValue()).intValue();
             hostManager.sendCommand("giveitem " + k + " " + count + " " + item);
-            JOptionPane.showMessageDialog(this, "Dispatched giveitem for " + count + "x " + item + " to " + k, "Given", JOptionPane.INFORMATION_MESSAGE);
+            JOptionPane.showMessageDialog(this, locale.getValue("m.ss_item_given", new String[]{String.valueOf(count), item, k}), locale.getValue("t.ss_success"), JOptionPane.INFORMATION_MESSAGE);
         });
         itemRow.add(giveBtn);
         panel.add(itemRow);
@@ -426,6 +437,14 @@ public class ServerSettingsDialog extends JDialog {
         wrap.setOpaque(false);
         wrap.add(scroll, BorderLayout.CENTER);
         return wrap;
+    }
+
+    /** A running server applies account changes a moment after the command was sent. */
+    private static void reloadAccountsSoon(Runnable reload) {
+        reload.run();
+        javax.swing.Timer later = new javax.swing.Timer(700, e -> reload.run());
+        later.setRepeats(false);
+        later.start();
     }
 
     private JLabel subheading(String key) {
@@ -624,7 +643,7 @@ public class ServerSettingsDialog extends JDialog {
             } else {
                 JOptionPane.showMessageDialog(
                     this,
-                    "Failed to reset server data. Check server logs.",
+                    locale.getValue("m.ss_reset_failed"),
                     locale.getValue("t.ss_reset_server"),
                     JOptionPane.ERROR_MESSAGE
                 );
@@ -735,7 +754,14 @@ public class ServerSettingsDialog extends JDialog {
             "m.ss_reset_server_success", "t.ss_reset_server", "b.server_settings", "ss.tab.config", "ss.tab.accounts",
             "ss.account.create_title", "ss.account.username", "ss.account.password", "ss.account.gm", "b.ss_account_create",
             "ss.account.list_title", "b.ss_account_gm_toggle", "b.ss_account_delete", "b.ss_account_refresh",
-            "ss.currency.grant_title", "ss.currency.knight_name", "b.ss_currency_grant", "ss.item.give_title", "b.ss_item_give"));
+            "ss.currency.grant_title", "ss.currency.knight_name", "b.ss_currency_grant", "ss.item.give_title", "b.ss_item_give",
+            "ss.col.id", "ss.col.username", "ss.col.gm", "ss.col.knights", "ss.col.created", "ss.value.yes", "ss.value.no", "ss.value.none",
+            "ss.value.knights_count", "t.ss_error", "t.ss_success", "t.ss_offline", "t.ss_no_selection", "t.ss_delete_account",
+            "t.ss_acc_invalid_user", "t.ss_acc_invalid_pass", "m.ss_acc_empty", "m.ss_acc_invalid_user", "m.ss_acc_invalid_pass",
+            "m.ss_need_running_create", "m.ss_acc_created", "m.ss_acc_create_failed", "m.ss_select_account", "m.ss_gm_failed",
+            "m.ss_delete_confirm", "m.ss_delete_failed", "m.ss_knight_required", "m.ss_need_running_grant", "m.ss_granted",
+            "m.ss_item_required", "m.ss_need_running_item", "m.ss_item_given", "ss.item.placeholder", "m.ss_reset_failed",
+            "m.server_cmd_not_running", "m.server_cmd_unreachable"));
         for (ServerSettings.Group group : ServerSettings.Group.values()) {
             keys.add("ss.group." + group.name().toLowerCase(java.util.Locale.ROOT));
         }

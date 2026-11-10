@@ -46,33 +46,27 @@ Open source game launcher for Spiral Knights with extended features, custom serv
 
 ## Server Hosting Quick Start
 
-The server runs on your own Spiral Knights install (nothing from the game is bundled with the launcher), so KnightLauncherPlus has to be in your game folder and the game installed and up to date.
+The server is the [Tortodrone](https://github.com/N0rule/Tortodrone) engine, started from the **Host Server** tab. The launcher carries the engine jar; the first **Start** also downloads the engine's content pack (about 20 MB, checked against a pinned SHA-256) into `KnightLauncher/server/`, so it needs a connection once. It needs nothing from your game install except a copy of the game to connect with.
 
-**One-time setup**: the server needs two scenes, Haven (`1`) and the Training Hall (`294`). The game downloads scenes from the official servers when you visit them and saves them in its `scenes` folder; the launcher does not ship them. Start Spiral Knights, log in, and visit Haven and the Training Hall once. The next time you press **Start Server**, the launcher copies them into `KnightLauncher/server/scenes/` by itself. Until then, **Start Server** explains what is missing.
+1. Open the **Host Server** tab.
+2. Optional: **Server Settings** changes the port (default `47624`), LAN/VPN access (off by default: the server then listens on this computer only), player limit, start map, log mode and combat timing. Changes apply the next time the server starts; the window offers to restart a running one.
+3. **Start**. The console shows the startup log (also saved in `KnightLauncher/server/server.log`, the previous run in `server.log.old`); a failure to start is shown in a dialog.
+4. Create accounts in **Server Settings → Accounts & Knights** (the server has to be running), then **Connect & Play** selects **Local Server** and launches the game. The same tab grants currency and items, toggles game master and deletes accounts.
 
-1. Navigate to the **Host Server** tab in KnightLauncherPlus.
-2. Optional: open **Server Settings** to change the port (default `47624`) or tick **Allow LAN/VPN** if friends should join. By default the server listens on this computer only.
-3. Click **Start Server**. The live console shows the startup log; a failure to start is shown in a dialog.
-4. Click **Connect & Play** to select **Local Server** and launch the game.
+The box under the console sends commands to the server's own console (the server tells you what it understands).
 
-**Server Settings**: the button next to *Connect & Play* opens a window with every server setting (port, LAN/VPN access, connection limits, update rates, walking speed, map bounds, combat timing). Each setting has a description and a reset button; changes apply the next time the server starts and are stored in `KnightLauncher/server/server.properties`.
-
-The server's output is also saved in `KnightLauncher/server/server.log` inside your game folder (the previous run in `server.log.old`).
-
-> **Warning**: the server is an emulator for private play. The first time you sign in with a new username and password, the server creates that account; afterwards the same password is needed, and the server keeps only a salted hash of it. Anyone who can reach the port can still create an account of their own. Only open it to LAN/VPN networks you trust, never to the internet. It accepts at most 32 connections and drops any that do not sign in within 10 seconds.
->
-> Logging in, Haven, the Training Hall and combat work with the real game. Accounts, knights (each with its own crowns and items), in-game mail, chat and whispers, friends and parties of up to 8 work and are tested against the game's own protocol.
->
-> Server console commands: `status`, `players`, `say <text>`, `kick <id>`, `account list|reset <name> <password>|delete <name>`, `knight list <account>`. Type them in the box at the bottom of the Host Server console and press Enter.
+> **Warning**: this is a private-play server. Only open it to LAN/VPN networks you trust, never to the internet.
 
 Adding a custom server (**Add Server**) points your installed game at that server's address, key and content URL. Only add servers you trust.
+
+Removing the Official anti-cheat check (`safeguard`) means the launcher no longer blocks cheat mods on the Official servers. Using them there can get your account banned.
 
 ## Built-in Server (Tortodrone Engine)
 
 KnightLauncherPlus integrates **Tortodrone** as its standalone clean-room game server engine:
 
 - **Process Model**: Clean-room execution in a separate JVM process decoupled from the launcher build and game jars.
-- **Module Packaging**: Packaged under `rsrc/modules/tortodrone/` (`tortodrone.jar` + `content.zip`) and extracted to `<gameDir>/KnightLauncher/server/`.
+- **Installation**: the engine jar is bundled with the launcher (with its license and notices); the pinned release (`tortodrone_version`, `tortodrone_url`, `tortodrone_sha256` in `build.properties`) is downloaded once for its content pack and default configuration (without comments) and unpacked to `<gameDir>/KnightLauncher/server/`.
 - **Configuration (`config/server.yml` & `config/combat.yml`)**:
   - Port, LAN/VPN access, maximum clients, startup town map, log mode, welcome message, and combat dodge cooldown.
 - **SQLite Database (`data/tortodrone.db`)**:
@@ -135,5 +129,5 @@ KnightLauncherPlus integrates **Tortodrone** as its standalone clean-room game s
 
 ## Credits & Upstream
 - Built upon the foundations of [KnightLauncher](https://github.com/lucasluqui/KnightLauncher) by Lucas Allegri.
-- The server emulator speaks the open-source Three Rings (Narya/Clyde) protocol that the game is built on.
+- The built-in server is [Tortodrone](https://github.com/N0rule/Tortodrone) by N0rule, under the [PolyForm Noncommercial License 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0). The launcher bundles its unmodified jar together with the license text and `Required Notice:` (see `src/main/resources/rsrc/modules/tortodrone/`); it runs in its own process, and the noncommercial terms apply to that program for everyone who receives it. Its content pack contains data derived from the original game, which its author does not license for redistribution, so the launcher does not contain it: it downloads the pack on first use.
 - Spiral Knights is created and owned by Grey Havens / SEGA. KnightLauncherPlus is an independent open-source project.

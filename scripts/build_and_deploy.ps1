@@ -90,17 +90,6 @@ if (-not (Test-Path 'deploy.properties')) {
     Copy-Item 'deploy.properties.template' 'deploy.properties'
 }
 
-# Compiling needs the game's own jar, which can't be committed: take it from the game install
-# (and refresh it when the game updated).
-$gamePcode = Join-Path $targetSkDir 'code\projectx-pcode.jar'
-$libPcode = Join-Path $repoRoot 'lib\projectx-pcode.jar'
-if (-not $SkipBuild) {
-    if (-not (Test-Path $libPcode) -or (Get-FileHash $gamePcode).Hash -ne (Get-FileHash $libPcode).Hash) {
-        Write-Host "[*] Copying projectx-pcode.jar from the game -> lib\" -ForegroundColor Yellow
-        Copy-Item -Path $gamePcode -Destination $libPcode -Force
-    }
-}
-
 if (-not $SkipBuild) {
     Write-Host "[*] Building KnightLauncherPlus (env=$envMode) using Maven Wrapper..." -ForegroundColor Yellow
     & $mvnw "-Denv=$envMode" '-DskipTests' clean package
