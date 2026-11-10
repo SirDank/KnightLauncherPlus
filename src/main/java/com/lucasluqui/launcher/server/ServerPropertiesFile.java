@@ -1,96 +1,142 @@
 package com.lucasluqui.launcher.server;
 
-import java.io.BufferedWriter;
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.Properties;
+import org.yaml.snakeyaml.DumperOptions;
+import org.yaml.snakeyaml.Yaml;
 
 /**
- * Reads and writes the optional {@code server.properties} that holds the server's settings (see {@link ServerSettings}).
- * Only settings that differ from the defaults are written, so a later change of a default still reaches everyone who
- * never touched that setting. Keys it does not know are kept.
+ * Reads and writes Tortodrone configuration files (server.yml and combat.yml).
  */
 public final class ServerPropertiesFile {
 
-    private static final String HEADER = "Settings of the built-in server, edited in the launcher's Server Settings window."
-        + "\nOnly values that differ from the defaults are listed. Changes apply the next time the server starts.";
-
     private ServerPropertiesFile() {}
 
-    /** The file the server reads: the one in KnightLauncher/server, else a server.properties in the game folder. */
     public static File resolve(File gameDir) {
-        File preferred = new File(gameDir, "KnightLauncher/server/server.properties");
-        File fallback = new File(gameDir, "server.properties");
+        File preferred = new File(gameDir, "KnightLauncher/server/config/server.yml");
+        File fallback = new File(gameDir, "config/server.yml");
         return !preferred.isFile() && fallback.isFile() ? fallback : preferred;
     }
 
-    /** All keys in the file (known or not); empty if there is no file. */
-    public static Properties readAll(File file) throws IOException {
-        Properties properties = new Properties();
-        if (file.isFile()) {
-            try (InputStream in = Files.newInputStream(file.toPath())) {
-                properties.load(in);
-            }
-        }
-        return properties;
-    }
-
-    /** The known settings in the file, as strings. */
-    public static Map<String, String> read(File file) throws IOException {
-        Map<String, String> values = new LinkedHashMap<>();
-        Properties properties = readAll(file);
-        for (ServerSettings.Def def : ServerSettings.all()) {
-            String value = properties.getProperty(def.key);
-            if (value != null) values.put(def.key, value.trim());
-        }
-        return values;
-    }
-
-    /**
-     * Replaces the known settings in the file with {@code values}; defaults are left out, unknown keys stay.
-     * The values must have passed {@link ServerSettings#validate}.
-     */
-    public static void write(File file, Map<String, String> values) throws IOException {
-        Properties existing = readAll(file);
-        Path directory = file.getAbsoluteFile().getParentFile().toPath();
-        Files.createDirectories(directory);
-        Path temporary = Files.createTempFile(directory, "server.properties.", ".tmp");
-        try {
-            try (BufferedWriter out = Files.newBufferedWriter(temporary, StandardCharsets.UTF_8)) {
-                for (String line : HEADER.split("\n")) out.write("# " + line + "\n");
-                for (ServerSettings.Def def : ServerSettings.all()) {
-                    String value = ServerSettings.raw(values, def.key);
-                    if (!sameAsDefault(def, value)) out.write(def.key + "=" + value + "\n");
-                }
-                for (String key : existing.stringPropertyNames()) {
-                    if (!ServerSettings.isKnown(key)) out.write(escapeKey(key) + "=" + existing.getProperty(key) + "\n");
+    public static Map<String, String> read(File serverYml) throws IOException {
+        Map<String, String> result = new LinkedHashMap<>();
+        if (serverYml != null && serverYml.isFile()) {
+            Yaml yaml = new Yaml();
+            try (InputStream in = new FileInputStream(serverYml)) {
+                Object loaded = yaml.load(in);
+                if (loaded instanceof Map) {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> map = (Map<String, Object>) loaded;
+                    if (map.containsKey("max-clients")) {
+                        result.put("server.maxClients", String.valueOf(map.get("max-clients")));
+                    }
+                    if (map.containsKey("welcome-message")) {
+                        result.put("server.welcomeMessage", String.valueOf(map.get("welcome-message")));
+                    }
+                    if (map.containsKey("startup-map")) {
+                        result.put("server.startupMap", String.valueOf(map.get("startup-map")));
+                    }
+                    if (map.containsKey("log-mode")) {
+                        result.put("server.logMode", String.valueOf(map.get("log-mode")));
+                    }
+                    if (map.containsKey("server-ip")) {
+                        String ip = String.valueOf(map.get("server-ip"));
+                        result.put("server.allowLan", String.valueOf("0.0.0.0".equals(ip)));
+                    }
                 }
             }
-            Files.move(temporary, file.toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-        } finally {
-            Files.deleteIfExists(temporary);
+
+            File combatYml = new File(serverYml.getParentFile(), "combat.yml");
+            if (combatYml.isFile()) {
+                try (InputStream in = new FileInputStream(combatYml)) {
+                    Object loaded = yaml.load(in);
+                    if (loaded instanceof Map) {
+                        @SuppressWarnings("unchecked")
+                        Map<String, Object> map = (Map<String, Object>) loaded;
+                        if (map.containsKey("dodgeCooldownMs")) {
+                            result.put("combat.dodgeCooldownMs", String.valueOf(map.get("dodgeCooldownMs")));
+                        }
+                    }
+                }
+            }
         }
+        return result;
     }
 
-    private static boolean sameAsDefault(ServerSettings.Def def, String value) {
-        switch (def.type) {
-            case BOOLEAN:
-                return Boolean.parseBoolean(value) == Boolean.parseBoolean(def.defaultValue);
-            case INT:
-                return Long.parseLong(value) == Long.parseLong(def.defaultValue);
-            default:
-                return Float.parseFloat(value) == Float.parseFloat(def.defaultValue);
+    public static void write(File serverYml, Map<String, String> values) throws IOException {
+        if (serverYml.getParentFile() != null) {
+            serverYml.getParentFile().mkdirs();
         }
-    }
 
-    private static String escapeKey(String key) {
-        return key.replace(" ", "\\ ").replace("=", "\\=").replace(":", "\\:");
+        DumperOptions options = new DumperOptions();
+        options.setDefaultFlowStyle(DumperOptions.FlowStyle.BLOCK);
+        options.setPrettyFlow(true);
+        Yaml yaml = new Yaml(options);
+
+        Map<String, Object> serverMap = new LinkedHashMap<>();
+        if (serverYml.isFile()) {
+            try (InputStream in = new FileInputStream(serverYml)) {
+                Object loaded = yaml.load(in);
+                if (loaded instanceof Map) {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> map = (Map<String, Object>) loaded;
+                    serverMap.putAll(map);
+                }
+            }
+        }
+
+        if (values.containsKey("server.maxClients")) {
+            try {
+                serverMap.put("max-clients", Integer.parseInt(values.get("server.maxClients")));
+            } catch (NumberFormatException ignored) {}
+        }
+        if (values.containsKey("server.welcomeMessage")) {
+            serverMap.put("welcome-message", values.get("server.welcomeMessage"));
+        }
+        if (values.containsKey("server.startupMap")) {
+            serverMap.put("startup-map", values.get("server.startupMap"));
+        }
+        if (values.containsKey("server.logMode")) {
+            serverMap.put("log-mode", values.get("server.logMode"));
+        }
+        if (values.containsKey("server.allowLan")) {
+            boolean lan = Boolean.parseBoolean(values.get("server.allowLan"));
+            serverMap.put("server-ip", lan ? "0.0.0.0" : "127.0.0.1");
+        }
+        serverMap.put("webui-enabled", false);
+        Object httpPort = serverMap.get("webui/content_url-port");
+        if (httpPort == null || Integer.valueOf(8080).equals(httpPort) || "8080".equals(String.valueOf(httpPort))) {
+            serverMap.put("webui/content_url-port", 0);
+        }
+
+        try (FileWriter writer = new FileWriter(serverYml)) {
+            yaml.dump(serverMap, writer);
+        }
+
+        if (values.containsKey("combat.dodgeCooldownMs")) {
+            File combatYml = new File(serverYml.getParentFile(), "combat.yml");
+            Map<String, Object> combatMap = new LinkedHashMap<>();
+            if (combatYml.isFile()) {
+                try (InputStream in = new FileInputStream(combatYml)) {
+                    Object loaded = yaml.load(in);
+                    if (loaded instanceof Map) {
+                        @SuppressWarnings("unchecked")
+                        Map<String, Object> map = (Map<String, Object>) loaded;
+                        combatMap.putAll(map);
+                    }
+                }
+            }
+            try {
+                combatMap.put("dodgeCooldownMs", Integer.parseInt(values.get("combat.dodgeCooldownMs")));
+            } catch (NumberFormatException ignored) {}
+            try (FileWriter writer = new FileWriter(combatYml)) {
+                yaml.dump(combatMap, writer);
+            }
+        }
     }
 }

@@ -4,9 +4,16 @@
     {
       "label": "Build & Deploy",
       "type": "shell",
-      "command": "${workspaceFolder}/scripts/build_and_deploy.bat",
+      "command": "${workspaceFolder}/scripts/build_and_deploy.sh",
       "windows": {
-        "command": "${workspaceFolder}\\scripts\\build_and_deploy.bat"
+        "command": "powershell.exe",
+        "args": [
+          "-NoProfile",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-File",
+          "${workspaceFolder}/scripts/build_and_deploy.ps1"
+        ]
       },
       "linux": {
         "command": "${workspaceFolder}/scripts/build_and_deploy.sh"
@@ -23,57 +30,88 @@
     {
       "label": "Build, Deploy & Run",
       "type": "shell",
-      "command": "${workspaceFolder}/scripts/build_and_deploy.bat",
-      "args": ["-Run"],
+      "command": "${workspaceFolder}/scripts/build_and_deploy.sh",
+      "args": ["--run"],
       "windows": {
-        "command": "${workspaceFolder}\\scripts\\build_and_deploy.bat"
+        "command": "powershell.exe",
+        "args": [
+          "-NoProfile",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-File",
+          "${workspaceFolder}/scripts/build_and_deploy.ps1",
+          "-Run"
+        ]
       },
       "linux": {
-        "command": "${workspaceFolder}/scripts/build_and_deploy.sh"
+        "command": "${workspaceFolder}/scripts/build_and_deploy.sh",
+        "args": ["--run"]
       },
       "osx": {
-        "command": "${workspaceFolder}/scripts/build_and_deploy.sh"
+        "command": "${workspaceFolder}/scripts/build_and_deploy.sh",
+        "args": ["--run"]
       },
       "problemMatcher": []
     },
     {
       "label": "Deploy Only (Skip Build)",
       "type": "shell",
-      "command": "${workspaceFolder}/scripts/build_and_deploy.bat",
-      "args": ["-SkipBuild"],
+      "command": "${workspaceFolder}/scripts/build_and_deploy.sh",
+      "args": ["--skip-build"],
       "windows": {
-        "command": "${workspaceFolder}\\scripts\\build_and_deploy.bat"
+        "command": "powershell.exe",
+        "args": [
+          "-NoProfile",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-File",
+          "${workspaceFolder}/scripts/build_and_deploy.ps1",
+          "-SkipBuild"
+        ]
       },
       "linux": {
-        "command": "${workspaceFolder}/scripts/build_and_deploy.sh"
+        "command": "${workspaceFolder}/scripts/build_and_deploy.sh",
+        "args": ["--skip-build"]
       },
       "osx": {
-        "command": "${workspaceFolder}/scripts/build_and_deploy.sh"
+        "command": "${workspaceFolder}/scripts/build_and_deploy.sh",
+        "args": ["--skip-build"]
       },
       "problemMatcher": []
     },
     {
       "label": "Deploy Dry Run",
       "type": "shell",
-      "command": "${workspaceFolder}/scripts/build_and_deploy.bat",
-      "args": ["-DryRun"],
+      "command": "${workspaceFolder}/scripts/build_and_deploy.sh",
+      "args": ["--dry-run"],
       "windows": {
-        "command": "${workspaceFolder}\\scripts\\build_and_deploy.bat"
+        "command": "powershell.exe",
+        "args": [
+          "-NoProfile",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-File",
+          "${workspaceFolder}/scripts/build_and_deploy.ps1",
+          "-DryRun"
+        ]
       },
       "linux": {
-        "command": "${workspaceFolder}/scripts/build_and_deploy.sh"
+        "command": "${workspaceFolder}/scripts/build_and_deploy.sh",
+        "args": ["--dry-run"]
       },
       "osx": {
-        "command": "${workspaceFolder}/scripts/build_and_deploy.sh"
+        "command": "${workspaceFolder}/scripts/build_and_deploy.sh",
+        "args": ["--dry-run"]
       },
       "problemMatcher": []
     },
     {
       "label": "Check Updates (KL_Update)",
       "type": "shell",
-      "command": "${workspaceFolder}/scripts/KL_Update.bat",
+      "command": "${workspaceFolder}/scripts/KL_Update.sh",
       "windows": {
-        "command": "${workspaceFolder}\\scripts\\KL_Update.bat"
+        "command": "cmd.exe",
+        "args": ["/c", "${workspaceFolder}\\scripts\\KL_Update.bat"]
       },
       "linux": {
         "command": "${workspaceFolder}/scripts/KL_Update.sh"
@@ -107,4 +145,3 @@
     }
   ]
 }
-

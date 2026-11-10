@@ -19,10 +19,11 @@ Open source game launcher for Spiral Knights with extended features, custom serv
 -----
 
 ## Features
-- **Built-in Game Server Hosting**: Run your own Spiral Knights server directly from the launcher with 1-click startup, accounts and knights saved in one local file, live console monitoring, and Haven & Training Hall world entry, chat, friends, parties and experimental generated dungeons.
+- **Built-in Game Server Hosting**: Run your own Spiral Knights server directly from the launcher with 1-click startup, persistent SQLite database (Schema 16), live console monitoring, Haven & Training Hall world entry, combat, chat, mail, friends, and parties of up to 8.
 - **Custom & Private Server Integration**: Join custom servers or your own local/LAN server with dedicated per-server settings and stock client compatibility.
 - **Modern Dark Black Theme**: Redesigned neutral dark theme across all launcher interfaces.
 - **Streamlined Modding**: Install and uninstall game mods easily without worrying about game updates.
+- **Traffic Logger Mod**: Clean-room client telemetry capture mod to record and inspect Presents/Narya RPCs and DObject events for server development and protocol verification.
 - **Editor Suite**: Launch into Silverweave, Model, Scene, Particle, and Crucible editors to create custom content or preview game models.
 - **Advanced Java Configuration**: Intuitive UI for configuring JVM runtimes (Java 25 LTS), memory limits, and GC parameters.
 - **File Verification & Rebuilding**: Re-install and verify game files with ease.
@@ -62,21 +63,33 @@ The server's output is also saved in `KnightLauncher/server/server.log` inside y
 >
 > Logging in, Haven, the Training Hall and combat work with the real game. Accounts, knights (each with its own crowns and items), in-game mail, chat and whispers, friends and parties of up to 8 work and are tested against the game's own protocol.
 >
-> **Dungeons (experimental)**: the game ships no dungeon layouts or enemy AI, so the server generates its own. The game keeps all its `/` chat commands inside the client (it refuses any it does not know), so the server uses the ones the game already sends to a server. As party leader in town type `/mission` (or `/mission 5 hard`: depth, then `easy`, `medium` or `hard`) to start a dungeon; everyone in your party goes in together. `/depth 5` sets where dungeons start and the depth of your next level. `/debug help` lists the rest: `/debug companions 3` brings three server-played knights (random but fair gear, finite health, they count toward the difficulty) and `/debug leave` takes you out of a dungeon (leaving the party does too). Monsters wake when you enter their room, bigger parties meet more and tougher ones, clearing a level gives each knight a piece of gear that fits the depth, and the end of the last room leads one level deeper. This has been tested against the game's protocol but not yet by playing it: how it looks and feels in the real client is still to be seen.
->
-> Server console commands: `status`, `players`, `say <text>`, `kick <id>`, `account list|reset <name> <password>|delete <name>`, `knight list <account>`, `dungeon clear`. Type them in the box at the bottom of the Host Server console and press Enter.
+> Server console commands: `status`, `players`, `say <text>`, `kick <id>`, `account list|reset <name> <password>|delete <name>`, `knight list <account>`. Type them in the box at the bottom of the Host Server console and press Enter.
 
 Adding a custom server (**Add Server**) points your installed game at that server's address, key and content URL. Only add servers you trust.
 
-Removing the Official anti-cheat check (`safeguard`) means the launcher no longer blocks cheat mods on the Official servers. Using them there can get your account banned.
+## Built-in Server (Tortodrone Engine)
+
+KnightLauncherPlus integrates **Tortodrone** as its standalone clean-room game server engine:
+
+- **Process Model**: Clean-room execution in a separate JVM process decoupled from the launcher build and game jars.
+- **Module Packaging**: Packaged under `rsrc/modules/tortodrone/` (`tortodrone.jar` + `content.zip`) and extracted to `<gameDir>/KnightLauncher/server/`.
+- **Configuration (`config/server.yml` & `config/combat.yml`)**:
+  - Port, LAN/VPN access, maximum clients, startup town map, log mode, welcome message, and combat dodge cooldown.
+- **SQLite Database (`data/tortodrone.db`)**:
+  - `accounts`: Account authentication and Game Master permissions.
+  - `knights`: Character records, appearance, and identifiers.
+  - `world_characters`: Currency balances (crowns, energy) and character state.
+  - `inventory_items`: Equipped and bag items, accessories, and variants.
+- **Administration UI**:
+  - Interactive Server Hosting tab with real-time logs, player counters, and command console.
+  - Server Settings dialog for live configuration and account administration (create, delete, toggle GM, grant currency/items).
 
 ## Building & Quick Deploying
 
 1. Prerequisites:
    - JDK 25 installed (`javac` and `java` on `PATH`).
-   - Spiral Knights installed: the deploy script copies the game's `projectx-pcode.jar` into `lib/` for you (refreshing it when the game updates).
    - Git installed.
-   - (Maven is automatically handled via the bundled `mvnw` wrapper).
+   - (Maven is automatically handled via the bundled `mvnw` wrapper; standalone build without requiring game jar dependencies).
 2. Clone repository:
    ```bash
    git clone https://github.com/SirDank/KnightLauncherPlus.git
@@ -91,8 +104,21 @@ Removing the Official anti-cheat check (`safeguard`) means the launcher no longe
    # To launch directly after deployment (-Run on Windows, --run on macOS / Linux):
    scripts\build_and_deploy.bat -Run
    ```
-   Builds `prod` by default (the Flamingo server the release uses); add `-Dev` / `--dev` for a local Flamingo at `127.0.0.1`. The script copies `deploy.properties.template` to `deploy.properties` when it is missing, and backs up the installed `KnightLauncher.jar` as `KnightLauncher.jar.bak` before replacing it.
-4. **Manual Build via Maven Wrapper** (copy `projectx-pcode.jar` from the game's `code/` folder into `lib/` first):
+   Deploy script arguments:
+   - `-Run` / `--run`: Automatically launches the game with the deployed jar.
+   - `-Dev` / `--dev`: Builds targeting the dev environment (`127.0.0.1`).
+   - `-SkipBuild` / `--skip-build`: Skips Maven packaging and deploys the existing artifact from `target/`.
+   - `-DryRun` / `--dry-run`: Detects game install and prints steps without building or copying.
+   - `-SkDir <path>` / `--sk-dir <path>`: Explicitly specifies the Spiral Knights installation directory.
+4. **VS Code Tasks**:
+   Open the repository in VS Code and use `Ctrl+Shift+B` or **Run Task** for preconfigured actions:
+   - `Build & Deploy`: Default build task, compiles and deploys to the detected game folder.
+   - `Build, Deploy & Run`: Builds, deploys, and launches KnightLauncherPlus.
+   - `Deploy Only (Skip Build)`: Deploys the current artifact without rebuilding.
+   - `Deploy Dry Run`: Tests game folder detection without writing files.
+   - `Maven: Test`: Runs the full automated test suite.
+   - `Maven: Package (Prod)`: Packages the standalone production JAR.
+5. **Manual Build via Maven Wrapper**:
    ```bash
    cp deploy.properties.template deploy.properties   # once; the build bakes it into the jar
    ./mvnw clean package
@@ -102,7 +128,7 @@ Removing the Official anti-cheat check (`safeguard`) means the launcher no longe
    Tests that need the game's data files skip themselves when the game is not installed; see `AGENTS.md` for running them against a game install.
 
 ## Community & Support
-- **Discord**: [Join our Dankware Discord](https://dankware.alwaysdata.net/discord)
+- **Discord**: [Join my Discord](https://dankware.alwaysdata.net/discord)
 - **Support the Project**: [Buy Me A Coffee](https://buymeacoffee.com/sirdankk)
 
 -----

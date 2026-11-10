@@ -75,4 +75,22 @@ public class ModuleManager
     }
   }
 
+  public void loadTortodrone ()
+  {
+    try {
+      java.io.File serverDir = new java.io.File(LauncherGlobals.USER_DIR, "KnightLauncher/server");
+      java.io.File jarTarget = new java.io.File(serverDir, "tortodrone.jar");
+      ZipUtil.extractFileWithinJar("/rsrc/modules/tortodrone/tortodrone.jar", jarTarget.getAbsolutePath());
+
+      java.io.File contentZip = new java.io.File(serverDir, "content.zip");
+      if (!new java.io.File(serverDir, "content").isDirectory() || !new java.io.File(serverDir, "config").isDirectory()) {
+        ZipUtil.extractFileWithinJar("/rsrc/modules/tortodrone/content.zip", contentZip.getAbsolutePath());
+        ZipUtil.unzip(contentZip.getAbsolutePath(), serverDir.getAbsolutePath() + java.io.File.separator);
+        FileUtil.deleteFile(contentZip.getAbsolutePath());
+      }
+    } catch (IOException e) {
+      log.error("Could not extract Tortodrone server module", e);
+    }
+  }
+
 }

@@ -109,13 +109,15 @@ public class LauncherEventHandler
       }
 
       // check if any game update took place since last launch.
-      if (!stockPrivateServer && _modManager.gameVersionChanged()) {
+      if (_modManager.gameVersionChanged()) {
         _modManager.checkInstalled();
-        _modManager.mount();
+        if (!stockPrivateServer) {
+          _modManager.mount();
 
-        // re-lock server switching and launch button after mounting.
-        this.updateServerSwitcher(true);
-        this.ui.setLaunchEnabled(false);
+          // re-lock server switching and launch button after mounting.
+          this.updateServerSwitcher(true);
+          this.ui.setLaunchEnabled(false);
+        }
       }
 
       if (selectedServer.isOfficial()) {
@@ -492,11 +494,13 @@ public class LauncherEventHandler
   private void showOfficialPlayerCount (Server official)
   {
     if (official.playerCountUrl == null) return;
+    if (_flamingoManager.getSelectedServer() != official) return;
 
     // Decrease the font size if the player count string is "too" long.
     float fontSize = official.playerCountUrl.length() > 5 ? 12.0f : 13.0f;
     ui.playerCountLabel.setFont(Fonts.getFont("default", fontSize, Font.BOLD | Font.ITALIC));
 
+    ui.playerCountTitleLabel.setVisible(true);
     ui.playerCountLabel.setText(official.playerCountUrl);
     ui.playerCountLabel.setVisible(true);
     ui.playerCountLabel.setIcon(null);
@@ -546,6 +550,7 @@ public class LauncherEventHandler
       if (selectedServer.isOfficial()) {
         ui.setLaunchEnabled(selectedServer.enabled == 1);
         ui.selectedServerLabel.setText("Official");
+        ui.playerCountTitleLabel.setVisible(true);
         ui.playerCountLabel.setVisible(true);
         showOfficialPlayerCount(selectedServer);
         startOfficialPlayerCountRefresh();
@@ -555,15 +560,11 @@ public class LauncherEventHandler
         ui.setLaunchEnabled(selectedServer.enabled == 1);
 
         ui.selectedServerLabel.setText("");
-
-        ui.serverInfoButton.setEnabled(true);
-        ui.serverInfoButton.setVisible(true);
-        ui.serverInfoButton.setText(selectedServer.name);
-
-        // TODO: Fetch player count.
-        ui.playerCountLabel.setText("??? ");
-        ui.playerCountLabel.setIcon(null);
+        ui.playerCountTitleLabel.setVisible(false);
+        ui.playerCountLabel.setVisible(false);
         ui.playerCountTooltipButton.setVisible(false);
+        ui.serverInfoButton.setEnabled(false);
+        ui.serverInfoButton.setVisible(false);
       }
 
       updateBanner();
@@ -1163,7 +1164,9 @@ public class LauncherEventHandler
           log.info("Getdown is running, waiting for it to start the game");
 
           // Getdown has its own window, so we can get out of the way already.
-          if (Settings.hideWhileGameRunning) SwingUtilities.invokeLater(this::hideLauncher);
+          com.lucasluqui.launcher.flamingo.data.Server selectedServer = _flamingoManager.getSelectedServer();
+          boolean isCustomServer = selectedServer != null && !selectedServer.isOfficial();
+          if (Settings.hideWhileGameRunning && !isCustomServer) SwingUtilities.invokeLater(this::hideLauncher);
         }
         getdownSeen = true;
         deadline = System.currentTimeMillis() + GAME_LAUNCH_TIMEOUT;
@@ -1212,7 +1215,9 @@ public class LauncherEventHandler
   private void enterGameSession ()
   {
     _discordPresenceClient.stop();
-    if (Settings.hideWhileGameRunning) hideLauncher();
+    com.lucasluqui.launcher.flamingo.data.Server selectedServer = _flamingoManager.getSelectedServer();
+    boolean isCustomServer = selectedServer != null && !selectedServer.isOfficial();
+    if (Settings.hideWhileGameRunning && !isCustomServer) hideLauncher();
 
     // A session might already be going on if another client was launched in the meantime.
     if (_gameWatcher == null) {

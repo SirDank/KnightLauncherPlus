@@ -12,7 +12,9 @@ import java.awt.Insets;
 import java.awt.Window;
 import java.io.File;
 import java.io.IOException;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -21,18 +23,25 @@ import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
+import javax.swing.JComboBox;
 import javax.swing.JComponent;
 import javax.swing.JDialog;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
+import javax.swing.JPasswordField;
 import javax.swing.JScrollPane;
 import javax.swing.JSeparator;
 import javax.swing.JSpinner;
+import javax.swing.JTabbedPane;
+import javax.swing.JTable;
 import javax.swing.JTextArea;
+import javax.swing.JTextField;
+import javax.swing.ListSelectionModel;
 import javax.swing.SpinnerNumberModel;
 import javax.swing.SwingConstants;
 import javax.swing.WindowConstants;
+import javax.swing.table.DefaultTableModel;
 
 import com.formdev.flatlaf.FlatClientProperties;
 import com.lucasluqui.launcher.CustomColors;
@@ -50,13 +59,11 @@ import jiconfont.icons.font_awesome.FontAwesome;
 import static com.lucasluqui.launcher.Log.log;
 
 /**
- * The window with every setting of the built-in server. It is built from {@link ServerSettings}, so a new setting
- * shows up here by itself. The port and "allow LAN/VPN" are the launcher's own; everything else is written to
- * {@code server.properties}. Changes apply the next time the server starts.
+ * Multi-tab dialog for configuring the Tortodrone server and administering accounts/knights.
  */
 public class ServerSettingsDialog extends JDialog {
-    private static final int WIDTH = 640;
-    private static final int HEIGHT = 720;
+    private static final int WIDTH = 700;
+    private static final int HEIGHT = 740;
 
     private final ServerHostManager hostManager;
     private final LocaleManager locale;
@@ -65,10 +72,10 @@ public class ServerSettingsDialog extends JDialog {
     private final File file = ServerPropertiesFile.resolve(new File(LauncherGlobals.USER_DIR));
 
     private final Map<String, Field> fields = new LinkedHashMap<>();
+    private final Map<String, String> initialValues = new LinkedHashMap<>();
     private Field portField;
     private Field lanField;
 
-    /** One row: the editor, how to read and set it, and the default it resets to. */
     private final class Field {
         final String defaultValue;
         final JComponent editor;
@@ -78,12 +85,18 @@ public class ServerSettingsDialog extends JDialog {
         }
         String get() {
             if (editor instanceof JCheckBox) return String.valueOf(((JCheckBox) editor).isSelected());
+            if (editor instanceof JComboBox) return String.valueOf(((JComboBox<?>) editor).getSelectedItem());
+            if (editor instanceof JTextField) return ((JTextField) editor).getText().trim();
             Number value = (Number) ((JSpinner) editor).getValue();
             return editor.getClientProperty("float") != null ? String.valueOf(value.floatValue()) : String.valueOf(value.longValue());
         }
         void set(String value) {
             if (editor instanceof JCheckBox) {
                 ((JCheckBox) editor).setSelected(Boolean.parseBoolean(value));
+            } else if (editor instanceof JComboBox) {
+                ((JComboBox<?>) editor).setSelectedItem(value);
+            } else if (editor instanceof JTextField) {
+                ((JTextField) editor).setText(value);
             } else if (editor.getClientProperty("float") != null) {
                 ((JSpinner) editor).setValue(Double.parseDouble(value));
             } else {
@@ -92,10 +105,6 @@ public class ServerSettingsDialog extends JDialog {
         }
     }
 
-    /**
-     * @param onSaved Called after the settings were saved (to refresh the hosting screen).
-     * @param restart Restarts the server; offered after saving while it is running.
-     */
     public ServerSettingsDialog(Window owner, ServerHostManager hostManager, LocaleManager locale,
                                 Runnable onSaved, Runnable restart) {
         super(owner, locale.getValue("ss.title"), ModalityType.MODELESS);
@@ -133,21 +142,306 @@ public class ServerSettingsDialog extends JDialog {
         header.add(subtitle);
         root.add(header, BorderLayout.NORTH);
 
+        JTabbedPane tabs = new JTabbedPane();
+        tabs.setFont(Fonts.getFont("default", 12.0f, Font.BOLD));
+        tabs.addTab(locale.getValue("ss.tab.config"), buildConfigTab());
+        tabs.addTab(locale.getValue("ss.tab.accounts"), buildAccountsTab());
+        root.add(tabs, BorderLayout.CENTER);
+
+        root.add(buttons(), BorderLayout.SOUTH);
+    }
+
+    private JPanel buildConfigTab() {
+        JPanel container = new JPanel(new BorderLayout());
+        container.setOpaque(false);
+
         JPanel form = new JPanel();
         form.setOpaque(false);
         form.setLayout(new BoxLayout(form, BoxLayout.Y_AXIS));
         for (ServerSettings.Group group : ServerSettings.Group.values()) {
             form.add(section(group));
         }
+
         JScrollPane scroll = new JScrollPane(form);
         scroll.setBorder(null);
         scroll.setOpaque(false);
         scroll.getViewport().setOpaque(false);
         scroll.getVerticalScrollBar().setUnitIncrement(Scale.px(16));
         scroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
-        root.add(scroll, BorderLayout.CENTER);
+        container.add(scroll, BorderLayout.CENTER);
+        return container;
+    }
 
-        root.add(buttons(), BorderLayout.SOUTH);
+    private JPanel buildAccountsTab() {
+        JPanel panel = new JPanel();
+        panel.setOpaque(false);
+        panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+        panel.setBorder(BorderFactory.createEmptyBorder(Scale.px(14), Scale.px(10), Scale.px(14), Scale.px(10)));
+
+        JTextField knightField = new JTextField(10);
+        JTextField itemKnightField = new JTextField(10);
+
+        // Create Account Section
+        panel.add(subheading("ss.account.create_title"));
+        JPanel createRow = new JPanel(new FlowLayout(FlowLayout.LEFT, Scale.px(8), Scale.px(4)));
+        createRow.setOpaque(false);
+        createRow.setAlignmentX(LEFT_ALIGNMENT);
+
+        JTextField newUserField = new JTextField(10);
+        newUserField.putClientProperty(FlatClientProperties.PLACEHOLDER_TEXT, locale.getValue("ss.account.username"));
+        styleField(newUserField);
+        createRow.add(newUserField);
+
+        JPasswordField newPassField = new JPasswordField(10);
+        newPassField.putClientProperty(FlatClientProperties.PLACEHOLDER_TEXT, locale.getValue("ss.account.password"));
+        styleField(newPassField);
+        createRow.add(newPassField);
+
+        JCheckBox gmCheck = new JCheckBox(locale.getValue("ss.account.gm"));
+        gmCheck.setOpaque(false);
+        gmCheck.setForeground(Color.WHITE);
+        createRow.add(gmCheck);
+
+        // Accounts Table Section
+        String[] cols = new String[] { "ID", "Username", "GM", "Knights", "Created" };
+        DefaultTableModel accountModel = new DefaultTableModel(cols, 0) {
+            @Override
+            public boolean isCellEditable(int row, int col) {
+                return false;
+            }
+        };
+
+        JTable accountTable = new JTable(accountModel);
+        accountTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        accountTable.setBackground(CustomColors.INTERFACE_TEXTFIELD_BACKGROUND);
+        accountTable.setForeground(Color.WHITE);
+        accountTable.setFont(Fonts.getFont("default", 11.0f, Font.PLAIN));
+        accountTable.setRowHeight(Scale.px(22));
+        accountTable.getTableHeader().setBackground(CustomColors.INTERFACE_BUTTON_BACKGROUND);
+        accountTable.getTableHeader().setForeground(Color.WHITE);
+        accountTable.getTableHeader().setFont(Fonts.getFont("default", 11.0f, Font.BOLD));
+        accountTable.getColumnModel().getColumn(0).setMaxWidth(Scale.px(50));
+        accountTable.getColumnModel().getColumn(1).setPreferredWidth(Scale.px(130));
+        accountTable.getColumnModel().getColumn(2).setPreferredWidth(Scale.px(50));
+        accountTable.getColumnModel().getColumn(3).setPreferredWidth(Scale.px(160));
+        accountTable.getColumnModel().getColumn(4).setPreferredWidth(Scale.px(140));
+
+        SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm");
+        List<ServerHostManager.ServerAccount> accountListCache = new ArrayList<>();
+        Runnable reloadAccounts = () -> {
+            accountModel.setRowCount(0);
+            accountListCache.clear();
+            List<ServerHostManager.ServerAccount> accounts = hostManager.getAccounts();
+            accountListCache.addAll(accounts);
+            for (ServerHostManager.ServerAccount acc : accounts) {
+                String createdStr = acc.createdAt() > 0 ? dateFormat.format(new Date(acc.createdAt())) : "--";
+                String knightsStr = acc.knights() != null && !acc.knights().isEmpty() ? acc.knights() : (acc.knightCount() == 0 ? "None" : acc.knightCount() + " knights");
+                accountModel.addRow(new Object[] {
+                    acc.id(),
+                    acc.username(),
+                    acc.gameMaster() ? "Yes" : "No",
+                    knightsStr,
+                    createdStr
+                });
+            }
+        };
+
+        accountTable.getSelectionModel().addListSelectionListener(e -> {
+            int row = accountTable.getSelectedRow();
+            if (row >= 0 && row < accountListCache.size()) {
+                ServerHostManager.ServerAccount acc = accountListCache.get(row);
+                if (acc.knights() != null && !acc.knights().isEmpty()) {
+                    String firstKnight = acc.knights().split(",")[0].trim();
+                    knightField.setText(firstKnight);
+                    itemKnightField.setText(firstKnight);
+                }
+            }
+        });
+
+        reloadAccounts.run();
+
+        JButton createBtn = button("b.ss_account_create", FontAwesome.USER_PLUS, CustomColors.ACCENT, e -> {
+            String u = newUserField.getText().trim();
+            String p = new String(newPassField.getPassword()).trim();
+            if (u.isEmpty() || p.isEmpty()) {
+                JOptionPane.showMessageDialog(this, "Username and password cannot be empty.", "Error", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+            if (!u.matches("[A-Za-z][A-Za-z0-9_-]{2,31}")) {
+                JOptionPane.showMessageDialog(this, "Username must be 3–32 characters, starting with a letter,\nfollowed by letters, numbers, underscores, or hyphens.", "Invalid Username", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+            if (p.length() < 8 || p.length() > 128) {
+                JOptionPane.showMessageDialog(this, "Password must be between 8 and 128 characters.", "Invalid Password", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+            if (!hostManager.isServerRunning()) {
+                JOptionPane.showMessageDialog(this, "Server must be running to create accounts.", "Server Offline", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+            hostManager.sendRaw("account create " + u + (gmCheck.isSelected() ? " gm" : ""));
+            hostManager.sendRaw(p);
+            hostManager.sendRaw(p);
+            newUserField.setText("");
+            newPassField.setText("");
+            JOptionPane.showMessageDialog(this, "Account create command dispatched: " + u, "Success", JOptionPane.INFORMATION_MESSAGE);
+            new Thread(() -> {
+                try { Thread.sleep(600); } catch (InterruptedException ignored) {}
+                javax.swing.SwingUtilities.invokeLater(reloadAccounts);
+            }).start();
+        });
+        createRow.add(createBtn);
+        panel.add(createRow);
+
+        panel.add(Box.createVerticalStrut(Scale.px(14)));
+
+        // Player Accounts View Section
+        panel.add(subheading("ss.account.list_title"));
+        JScrollPane accountScroll = new JScrollPane(accountTable);
+        accountScroll.setPreferredSize(new Dimension(Scale.px(640), Scale.px(130)));
+        accountScroll.setMaximumSize(new Dimension(Integer.MAX_VALUE, Scale.px(130)));
+        accountScroll.setAlignmentX(LEFT_ALIGNMENT);
+        accountScroll.setBorder(BorderFactory.createLineBorder(new Color(0x33, 0x33, 0x33)));
+        panel.add(accountScroll);
+
+        JPanel tableActions = new JPanel(new FlowLayout(FlowLayout.LEFT, Scale.px(8), Scale.px(4)));
+        tableActions.setOpaque(false);
+        tableActions.setAlignmentX(LEFT_ALIGNMENT);
+
+        JButton toggleGmBtn = button("b.ss_account_gm_toggle", FontAwesome.SHIELD, CustomColors.INTERFACE_BUTTON_BACKGROUND, e -> {
+            int row = accountTable.getSelectedRow();
+            if (row < 0 || row >= accountListCache.size()) {
+                JOptionPane.showMessageDialog(this, "Please select an account from the list.", "No Selection", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+            ServerHostManager.ServerAccount acc = accountListCache.get(row);
+            hostManager.toggleGameMaster(acc.id(), acc.username(), acc.gameMaster());
+            reloadAccounts.run();
+        });
+        tableActions.add(toggleGmBtn);
+
+        JButton deleteAccBtn = button("b.ss_account_delete", FontAwesome.TRASH, new Color(180, 40, 40), e -> {
+            int row = accountTable.getSelectedRow();
+            if (row < 0 || row >= accountListCache.size()) {
+                JOptionPane.showMessageDialog(this, "Please select an account from the list.", "No Selection", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+            ServerHostManager.ServerAccount acc = accountListCache.get(row);
+            int confirm = JOptionPane.showConfirmDialog(this,
+                "Are you sure you want to delete account '" + acc.username() + "'?\nThis will remove all associated knights and characters.",
+                "Delete Account", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+            if (confirm == JOptionPane.YES_OPTION) {
+                hostManager.deleteAccount(acc.id(), acc.username());
+                reloadAccounts.run();
+            }
+        });
+        tableActions.add(deleteAccBtn);
+
+        JButton refreshAccBtn = button("b.ss_account_refresh", FontAwesome.REFRESH, CustomColors.INTERFACE_BUTTON_BACKGROUND, e -> {
+            reloadAccounts.run();
+        });
+        tableActions.add(refreshAccBtn);
+        panel.add(tableActions);
+
+        panel.add(Box.createVerticalStrut(Scale.px(14)));
+
+        // Currency Grants Section
+        panel.add(subheading("ss.currency.grant_title"));
+        JPanel currRow = new JPanel(new FlowLayout(FlowLayout.LEFT, Scale.px(8), Scale.px(4)));
+        currRow.setOpaque(false);
+        currRow.setAlignmentX(LEFT_ALIGNMENT);
+
+        knightField.putClientProperty(FlatClientProperties.PLACEHOLDER_TEXT, locale.getValue("ss.currency.knight_name"));
+        styleField(knightField);
+        currRow.add(knightField);
+
+        JComboBox<String> currType = new JComboBox<>(new String[] { "crowns", "energy" });
+        currType.setPreferredSize(new Dimension(Scale.px(90), Scale.px(26)));
+        currRow.add(currType);
+
+        JSpinner currAmount = spinner(1000, 1, 2_000_000_000, 100, false);
+        currRow.add(currAmount);
+
+        JButton grantBtn = button("b.ss_currency_grant", FontAwesome.PLUS_CIRCLE, CustomColors.INTERFACE_BUTTON_BACKGROUND, e -> {
+            String k = knightField.getText().trim();
+            if (k.isEmpty()) {
+                JOptionPane.showMessageDialog(this, "Knight name is required.", "Error", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+            if (!hostManager.isServerRunning()) {
+                JOptionPane.showMessageDialog(this, "Server must be running to grant currency.", "Server Offline", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+            String type = String.valueOf(currType.getSelectedItem());
+            long amt = ((Number) currAmount.getValue()).longValue();
+            hostManager.sendCommand("grant " + k + " " + type + " " + amt);
+            JOptionPane.showMessageDialog(this, "Granted " + amt + " " + type + " to " + k, "Granted", JOptionPane.INFORMATION_MESSAGE);
+        });
+        currRow.add(grantBtn);
+        panel.add(currRow);
+
+        panel.add(Box.createVerticalStrut(Scale.px(16)));
+
+        // Item Grants Section
+        panel.add(subheading("ss.item.give_title"));
+        JPanel itemRow = new JPanel(new FlowLayout(FlowLayout.LEFT, Scale.px(8), Scale.px(4)));
+        itemRow.setOpaque(false);
+        itemRow.setAlignmentX(LEFT_ALIGNMENT);
+
+        itemKnightField.putClientProperty(FlatClientProperties.PLACEHOLDER_TEXT, locale.getValue("ss.currency.knight_name"));
+        styleField(itemKnightField);
+        itemRow.add(itemKnightField);
+
+        JTextField itemConfigField = new JTextField(16);
+        itemConfigField.putClientProperty(FlatClientProperties.PLACEHOLDER_TEXT, "Proto Sword (or path)");
+        styleField(itemConfigField);
+        itemRow.add(itemConfigField);
+
+        JSpinner itemCount = spinner(1, 1, 20, 1, false);
+        itemRow.add(itemCount);
+
+        JButton giveBtn = button("b.ss_item_give", FontAwesome.GIFT, CustomColors.INTERFACE_BUTTON_BACKGROUND, e -> {
+            String k = itemKnightField.getText().trim();
+            String item = itemConfigField.getText().trim();
+            if (k.isEmpty() || item.isEmpty()) {
+                JOptionPane.showMessageDialog(this, "Knight name and item are required.", "Error", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+            if (!hostManager.isServerRunning()) {
+                JOptionPane.showMessageDialog(this, "Server must be running to grant items.", "Server Offline", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+            int count = ((Number) itemCount.getValue()).intValue();
+            hostManager.sendCommand("giveitem " + k + " " + count + " " + item);
+            JOptionPane.showMessageDialog(this, "Dispatched giveitem for " + count + "x " + item + " to " + k, "Given", JOptionPane.INFORMATION_MESSAGE);
+        });
+        itemRow.add(giveBtn);
+        panel.add(itemRow);
+
+        JScrollPane scroll = new JScrollPane(panel);
+        scroll.setBorder(null);
+        scroll.setOpaque(false);
+        scroll.getViewport().setOpaque(false);
+        JPanel wrap = new JPanel(new BorderLayout());
+        wrap.setOpaque(false);
+        wrap.add(scroll, BorderLayout.CENTER);
+        return wrap;
+    }
+
+    private JLabel subheading(String key) {
+        JLabel label = new JLabel(locale.getValue(key));
+        label.setFont(Fonts.getFont("default", 14.0f, Font.BOLD));
+        label.setForeground(CustomColors.ACCENT_LIGHT);
+        label.setAlignmentX(LEFT_ALIGNMENT);
+        return label;
+    }
+
+    private void styleField(JTextField field) {
+        field.setFont(Fonts.getFont("code", 11.5f, Font.PLAIN));
+        field.setForeground(Color.WHITE);
+        field.setBackground(CustomColors.INTERFACE_TEXTFIELD_BACKGROUND);
+        field.setCaretColor(Color.WHITE);
+        field.setPreferredSize(new Dimension(Scale.px(140), Scale.px(26)));
     }
 
     private JPanel section(ServerSettings.Group group) {
@@ -168,7 +462,6 @@ public class ServerSettingsDialog extends JDialog {
         section.add(separator);
 
         if (group == ServerSettings.Group.NETWORK) {
-            // The launcher's own settings: which port to host on and whether others may join.
             portField = new Field(String.valueOf(ServerNet.DEFAULT_PORT), spinner(ServerNet.DEFAULT_PORT, 1, 65535, 1, false));
             section.add(row("ss.server.port", "ss.server.port.desc", portField));
         }
@@ -186,11 +479,35 @@ public class ServerSettingsDialog extends JDialog {
     }
 
     private JComponent editorFor(ServerSettings.Def def) {
+        if ("server.startupMap".equals(def.key)) {
+            JComboBox<String> mapBox = new JComboBox<>(new String[] {
+                "haven", "arcade", "bazaar", "crash_site", "garrison",
+                "hall_of_heroes", "laboratory", "rescue_camp", "advanced_training"
+            });
+            mapBox.setFont(Fonts.getFont("code", 11.5f, Font.PLAIN));
+            mapBox.setPreferredSize(new Dimension(Scale.px(180), Scale.px(26)));
+            return mapBox;
+        }
+        if ("server.logMode".equals(def.key)) {
+            JComboBox<String> logBox = new JComboBox<>(new String[] { "normal", "debug" });
+            logBox.setFont(Fonts.getFont("code", 11.5f, Font.PLAIN));
+            logBox.setPreferredSize(new Dimension(Scale.px(180), Scale.px(26)));
+            return logBox;
+        }
         switch (def.type) {
             case BOOLEAN:
                 return new JCheckBox();
             case INT:
                 return spinner(Integer.parseInt(def.defaultValue), (int) def.min, (int) def.max, 1, false);
+            case STRING:
+                JTextField text = new JTextField(16);
+                text.setFont(Fonts.getFont("code", 11.5f, Font.PLAIN));
+                text.setForeground(Color.WHITE);
+                text.setBackground(CustomColors.INTERFACE_TEXTFIELD_BACKGROUND);
+                text.setCaretColor(Color.WHITE);
+                text.setPreferredSize(new Dimension(Scale.px(180), Scale.px(26)));
+                text.setMinimumSize(new Dimension(Scale.px(120), Scale.px(26)));
+                return text;
             default:
                 double step = Math.max(0.1, Math.pow(10, Math.floor(Math.log10(Math.max(1.0, def.max))) - 2));
                 return spinner(Double.parseDouble(def.defaultValue), def.min, def.max, Math.min(step, 5.0), true);
@@ -203,7 +520,6 @@ public class ServerSettingsDialog extends JDialog {
             : new SpinnerNumberModel(value.intValue(), min.intValue(), max.intValue(), step.intValue());
         JSpinner spinner = new JSpinner(model);
         spinner.setFont(Fonts.getFont("code", 11.5f, Font.PLAIN));
-        // Plain numbers: no thousands separator in a port, and decimals keep their ".0".
         spinner.setEditor(new JSpinner.NumberEditor(spinner, real ? "0.0##" : "0"));
         if (real) spinner.putClientProperty("float", Boolean.TRUE);
         Dimension size = new Dimension(Scale.px(110), Scale.px(26));
@@ -274,6 +590,7 @@ public class ServerSettingsDialog extends JDialog {
         JPanel left = new JPanel(new FlowLayout(FlowLayout.LEFT, Scale.px(8), 0));
         left.setOpaque(false);
         left.add(button("b.ss_reset_all", null, CustomColors.INTERFACE_BUTTON_BACKGROUND, e -> resetAll()));
+        left.add(button("b.ss_reset_server", FontAwesome.TRASH, new Color(180, 40, 40), e -> confirmResetServer()));
         left.add(button("b.ss_open_folder", FontAwesome.FOLDER_OPEN, CustomColors.INTERFACE_BUTTON_BACKGROUND, e -> openFolder()));
         bar.add(left, BorderLayout.WEST);
 
@@ -283,6 +600,36 @@ public class ServerSettingsDialog extends JDialog {
         right.add(button("b.ss_save", FontAwesome.CHECK, CustomColors.ACCENT, e -> save()));
         bar.add(right, BorderLayout.EAST);
         return bar;
+    }
+
+    private void confirmResetServer() {
+        int choice = JOptionPane.showConfirmDialog(
+            this,
+            locale.getValue("m.ss_reset_server_confirm"),
+            locale.getValue("t.ss_reset_server"),
+            JOptionPane.YES_NO_OPTION,
+            JOptionPane.WARNING_MESSAGE
+        );
+        if (choice == JOptionPane.YES_OPTION) {
+            boolean success = hostManager.resetServerData();
+            if (success) {
+                JOptionPane.showMessageDialog(
+                    this,
+                    locale.getValue("m.ss_reset_server_success"),
+                    locale.getValue("t.ss_reset_server"),
+                    JOptionPane.INFORMATION_MESSAGE
+                );
+                loadValues();
+                if (onSaved != null) onSaved.run();
+            } else {
+                JOptionPane.showMessageDialog(
+                    this,
+                    "Failed to reset server data. Check server logs.",
+                    locale.getValue("t.ss_reset_server"),
+                    JOptionPane.ERROR_MESSAGE
+                );
+            }
+        }
     }
 
     private JButton button(String key, FontAwesome icon, Color background, java.awt.event.ActionListener action) {
@@ -298,7 +645,6 @@ public class ServerSettingsDialog extends JDialog {
         return button;
     }
 
-    /** Shows what is saved: the launcher's port and LAN choice, and server.properties. */
     private void loadValues() {
         portField.set(String.valueOf(hostManager.getServerPort()));
         lanField.set(String.valueOf(hostManager.isLanAllowed()));
@@ -313,9 +659,15 @@ public class ServerSettingsDialog extends JDialog {
             try {
                 entry.getValue().set(value == null ? entry.getValue().defaultValue : value);
             } catch (RuntimeException invalid) {
-                entry.getValue().set(entry.getValue().defaultValue); // a hand-edited value the spinner cannot show
+                entry.getValue().set(entry.getValue().defaultValue);
             }
         }
+        initialValues.clear();
+        for (Map.Entry<String, Field> entry : fields.entrySet()) {
+            initialValues.put(entry.getKey(), entry.getValue().get());
+        }
+        initialValues.put("server.port", portField.get());
+        initialValues.put("server.allowLan", lanField.get());
     }
 
     private void resetAll() {
@@ -337,12 +689,22 @@ public class ServerSettingsDialog extends JDialog {
     private void save() {
         Map<String, String> values = new LinkedHashMap<>();
         for (Map.Entry<String, Field> entry : fields.entrySet()) values.put(entry.getKey(), entry.getValue().get());
+        values.put("server.allowLan", lanField.get());
         List<String> problems = ServerSettings.validate(values);
         if (!problems.isEmpty()) {
             JOptionPane.showMessageDialog(this, locale.getValue("m.ss_invalid") + "\n\n" + String.join("\n", problems),
                 locale.getValue("ss.title"), JOptionPane.ERROR_MESSAGE);
             return;
         }
+
+        Map<String, String> currentValues = new LinkedHashMap<>(values);
+        currentValues.put("server.port", portField.get());
+        boolean changed = !currentValues.equals(initialValues);
+        if (!changed) {
+            dispose();
+            return;
+        }
+
         try {
             ServerPropertiesFile.write(file, values);
         } catch (IOException e) {
@@ -366,11 +728,14 @@ public class ServerSettingsDialog extends JDialog {
         dispose();
     }
 
-    /** Used by the tests of the window's pieces; the keys every row needs in the locale files. */
     public static List<String> requiredLocaleKeys() {
         List<String> keys = new ArrayList<>(List.of("ss.title", "ss.subtitle", "ss.server.port", "ss.server.port.desc",
-            "b.ss_save", "b.ss_close", "b.ss_reset_all", "b.ss_open_folder", "tt.ss_reset_field",
-            "m.ss_invalid", "m.ss_save_failed", "m.ss_saved", "m.ss_saved_restart", "b.server_settings"));
+            "b.ss_save", "b.ss_close", "b.ss_reset_all", "b.ss_reset_server", "b.ss_open_folder", "tt.ss_reset_field",
+            "m.ss_invalid", "m.ss_save_failed", "m.ss_saved", "m.ss_saved_restart", "m.ss_reset_server_confirm",
+            "m.ss_reset_server_success", "t.ss_reset_server", "b.server_settings", "ss.tab.config", "ss.tab.accounts",
+            "ss.account.create_title", "ss.account.username", "ss.account.password", "ss.account.gm", "b.ss_account_create",
+            "ss.account.list_title", "b.ss_account_gm_toggle", "b.ss_account_delete", "b.ss_account_refresh",
+            "ss.currency.grant_title", "ss.currency.knight_name", "b.ss_currency_grant", "ss.item.give_title", "b.ss_item_give"));
         for (ServerSettings.Group group : ServerSettings.Group.values()) {
             keys.add("ss.group." + group.name().toLowerCase(java.util.Locale.ROOT));
         }

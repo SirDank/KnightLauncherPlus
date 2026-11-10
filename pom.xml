@@ -43,19 +43,10 @@
   </properties>
 
   <dependencies>
-    <!--
-      For this local dependency, you must copy 'projectx-pcode.jar' from the game's 'code' directory into the
-      project's 'lib' directory, as it would be illegal for us to bundle proprietary software.
-
-      The use of this dependency is for 'com.lucasluqui.bootstrap.Bootstrap' to take over and load in code mods
-      when it is required to.
-    -->
     <dependency>
-      <groupId>pcode</groupId>
-      <artifactId>pcode</artifactId>
-      <version>1.0.0</version>
-      <scope>system</scope>
-      <systemPath>${project.basedir}/lib/projectx-pcode.jar</systemPath>
+      <groupId>org.yaml</groupId>
+      <artifactId>snakeyaml</artifactId>
+      <version>2.5</version>
     </dependency>
     <dependency>
       <groupId>com.google.guava</groupId>
@@ -159,7 +150,7 @@
       <scope>test</scope>
     </dependency>
 
-    <!-- The built-in server keeps accounts, knights and mail in one SQLite file (KnightLauncher/server/world.db). -->
+    <!-- The built-in Tortodrone server stores accounts, characters, and world state in SQLite (KnightLauncher/server/data/tortodrone.db). -->
     <dependency>
       <groupId>org.xerial</groupId>
       <artifactId>sqlite-jdbc</artifactId>

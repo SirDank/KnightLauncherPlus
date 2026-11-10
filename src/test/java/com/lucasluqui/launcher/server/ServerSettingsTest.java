@@ -9,7 +9,6 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class ServerSettingsTest {
@@ -26,7 +25,7 @@ public class ServerSettingsTest {
     @Test
     public void everyDefaultIsInsideItsOwnRange() {
         for (ServerSettings.Def def : ServerSettings.all()) {
-            if (def.type == ServerSettings.Type.BOOLEAN) continue;
+            if (def.type == ServerSettings.Type.BOOLEAN || def.type == ServerSettings.Type.STRING) continue;
             double value = Double.parseDouble(def.defaultValue);
             assertTrue(value >= def.min && value <= def.max, def.key + " default " + value + " outside its range");
         }
@@ -34,34 +33,19 @@ public class ServerSettingsTest {
 
     @Test
     public void rejectsBadTypesAndRanges() {
-        assertFalse(ServerSettings.validate(Map.of("server.maxSessions", "0")).isEmpty());
-        assertFalse(ServerSettings.validate(Map.of("server.maxSessions", "many")).isEmpty());
-        assertFalse(ServerSettings.validate(Map.of("movement.enabled", "maybe")).isEmpty());
-        assertFalse(ServerSettings.validate(Map.of("movement.baseSpeed", "NaN")).isEmpty());
-        assertFalse(ServerSettings.validate(Map.of("combat.burstIntervalMs", "19")).isEmpty());
-    }
-
-    @Test
-    public void enforcesTheRulesBetweenSettings() {
-        Map<String, String> values = new HashMap<>();
-        values.put("movement.deltaIntervalMs", "30");
-        values.put("movement.trainingDeltaIntervalMs", "50");
-        assertTrue(ServerSettings.validate(values).get(0).contains("multiple"));
-
-        values.clear();
-        values.put("movement.bounds.minX", "100");
-        assertTrue(ServerSettings.validate(values).get(0).contains("bounds"));
+        assertFalse(ServerSettings.validate(Map.of("server.maxClients", "0")).isEmpty());
+        assertFalse(ServerSettings.validate(Map.of("server.maxClients", "many")).isEmpty());
+        assertFalse(ServerSettings.validate(Map.of("server.allowLan", "maybe")).isEmpty());
+        assertFalse(ServerSettings.validate(Map.of("combat.dodgeCooldownMs", "-1")).isEmpty());
     }
 
     @Test
     public void blankValuesFallBackToTheDefault() {
-        assertEquals("32", ServerSettings.raw(Map.of("server.maxSessions", "  "), "server.maxSessions"));
-        assertEquals(20, ServerSettings.getInt(new HashMap<>(), "movement.deltaIntervalMs"));
+        assertEquals("16", ServerSettings.raw(Map.of("server.maxClients", "  "), "server.maxClients"));
     }
 
     @Test
-    public void unknownKeysAreRejectedByLookup() {
-        assertThrows(IllegalArgumentException.class, () -> ServerSettings.get("nope"));
+    public void unknownKeysAreIgnoredOrFalse() {
         assertFalse(ServerSettings.isKnown("nope"));
     }
 

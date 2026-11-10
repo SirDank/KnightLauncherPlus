@@ -16,6 +16,7 @@ import com.lucasluqui.util.*;
 import javax.swing.*;
 import java.io.*;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
 
@@ -416,9 +417,12 @@ public class SettingsManager
     properties.setProperty("content_url", orDefault(Settings.gameContentURL, SettingsEventHandler.DEFAULT_CONTENT_URL));
 
     try {
-      ZipUtil.updatePropertiesInsideZip(
-        Paths.get(LauncherGlobals.USER_DIR, "code", "config.jar"),
-        "deployment.properties", properties);
+      Path configJar = Paths.get(LauncherGlobals.USER_DIR, "code", "config.jar");
+      ZipUtil.updatePropertiesInsideZip(configJar, "deployment.properties", properties);
+      // Stock private servers use the stock client: strip any lingering .class files so stale mod bytecode never causes VerifyError
+      if (server != null && server.useStockClient) {
+        ZipUtil.removeMatchingEntries(configJar, name -> name.endsWith(".class"));
+      }
       // Remember whether config.jar now points at a private server, so an Official launch can undo it.
       setValue(CONFIG_JAR_PRIVATE_KEY, String.valueOf(server != null && server.useStockClient));
       return true;

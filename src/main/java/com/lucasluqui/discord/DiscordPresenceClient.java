@@ -84,7 +84,7 @@ public class DiscordPresenceClient
   {
     DiscordRichPresence.Builder presence = new DiscordRichPresence.Builder(_localeManager.getValue("presence.using"));
     presence.setDetails(details);
-    presence.setBigImage("icon-512", "Knight Launcher " + BuildConfig.getVersion());
+    presence.setBigImage("icon-512", "Knight Launcher Plus " + BuildConfig.getVersion());
     DiscordRPC.discordUpdatePresence(presence.build());
     log.info("Updating discord presence detail", "detail", details);
   }

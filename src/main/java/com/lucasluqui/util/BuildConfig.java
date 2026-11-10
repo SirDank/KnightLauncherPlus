@@ -26,6 +26,11 @@ public class BuildConfig
     return _build.getValue("spiralview_version", "0");
   }
 
+  public static String getTortodroneVersion ()
+  {
+    return _build.getValue("tortodrone_version", "0.40.7");
+  }
+
   public static boolean isSnapshot ()
   {
     return BuildConfig.getVersion().contains("SNAPSHOT");

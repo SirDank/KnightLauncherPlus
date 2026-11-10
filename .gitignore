@@ -15,10 +15,11 @@ bin/
 
 # Package Files #
 *.jar
+*.zip
+!src/main/resources/rsrc/modules/**
 *.war
 *.nar
 *.ear
-*.zip
 *.tar.gz
 *.rar
 
@@ -46,3 +47,5 @@ settings.xml
 # Deploy settings
 deploy.properties
 scratch/
+KnightLauncher/
+/state

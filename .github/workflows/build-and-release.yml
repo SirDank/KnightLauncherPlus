@@ -32,50 +32,6 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
 
-      - name: Fetch Spiral Knights version
-        id: fetch-version
-        run: |
-          # Download getdown.txt to get the version
-          curl -sSL https://gamemedia.spiralknights.com/spiral/latest/getdown.txt -o getdown.txt
-
-          # Extract version number from the first line
-          VERSION=$(grep '^version = ' getdown.txt | head -1 | sed 's/version = //')
-          echo "SK_VERSION=$VERSION" >> $GITHUB_ENV
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-
-          echo "Spiral Knights version: $VERSION"
-
-          # Clean up
-          rm getdown.txt
-
-      - name: Cache projectx-pcode.jar
-        id: cache-projectx
-        uses: actions/cache@v6
-        with:
-          path: lib/projectx-pcode.jar
-          key: projectx-pcode-${{ steps.fetch-version.outputs.version }}
-
-      - name: Download projectx-pcode.jar
-        if: steps.cache-projectx.outputs.cache-hit != 'true'
-        run: |
-          # Construct the URL using the version
-          JAR_URL="http://gamemedia2.spiralknights.com/spiral/${{ steps.fetch-version.outputs.version }}/code/projectx-pcode.jar"
-
-          echo "Downloading from: $JAR_URL"
-
-          # Download the jar file to lib directory
-          mkdir -p lib
-          curl -sSL "$JAR_URL" -o lib/projectx-pcode.jar
-
-          # Verify the file was downloaded
-          if [ -f lib/projectx-pcode.jar ]; then
-            echo "Successfully downloaded projectx-pcode.jar"
-            ls -lh lib/projectx-pcode.jar
-          else
-            echo "Failed to download projectx-pcode.jar"
-            exit 1
-          fi
-
       - name: Create deploy.properties
         run: |
           # Create deploy.properties from template for production build

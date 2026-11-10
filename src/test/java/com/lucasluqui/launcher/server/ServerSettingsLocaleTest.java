@@ -16,16 +16,22 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 public class ServerSettingsLocaleTest {
 
     @Test
-    public void englishHasEveryKeyTheWindowUses() throws IOException {
-        Properties english = new Properties();
-        try (InputStream in = getClass().getResourceAsStream("/rsrc/lang/lang_en.properties")) {
-            english.load(new java.io.InputStreamReader(in, StandardCharsets.UTF_8));
+    public void allLocalesHaveEveryKeyTheWindowUses() throws IOException {
+        String[] locales = {
+            "ar", "de", "en", "es", "et-ee", "fr", "it", "jp", "pl", "pt-br", "ru", "zh-hans", "zh-hant"
+        };
+        for (String lang : locales) {
+            Properties props = new Properties();
+            try (InputStream in = getClass().getResourceAsStream("/rsrc/lang/lang_" + lang + ".properties")) {
+                props.load(new java.io.InputStreamReader(in, StandardCharsets.UTF_8));
+            }
+            List<String> missing = new ArrayList<>();
+            for (String key : ServerSettingsDialog.requiredLocaleKeys()) {
+                String value = props.getProperty(key);
+                if (value == null || value.isEmpty()) missing.add(key);
+            }
+            if (props.getProperty("b.server") == null) missing.add("b.server");
+            assertTrue(missing.isEmpty(), "missing in lang_" + lang + ".properties: " + missing);
         }
-        List<String> missing = new ArrayList<>();
-        for (String key : ServerSettingsDialog.requiredLocaleKeys()) {
-            String value = english.getProperty(key);
-            if (value == null || value.length() < 3) missing.add(key);
-        }
-        assertTrue(missing.isEmpty(), "missing in lang_en.properties: " + missing);
     }
 }

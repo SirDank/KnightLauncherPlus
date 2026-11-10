@@ -126,6 +126,12 @@ public class ServerConsolePanel extends JPanel {
         hostManager.addLogListener(this::appendLine);
     }
 
+    public void setBlocked(boolean blocked) {
+        commandField.setEnabled(!blocked);
+        sendButton.setEnabled(!blocked);
+        clearButton.setEnabled(!blocked);
+    }
+
     public void appendLine(String line) {
         SwingUtilities.invokeLater(() -> {
             JScrollBar bar = scrollPane.getVerticalScrollBar();

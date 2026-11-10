@@ -232,7 +232,7 @@ public class LauncherUI extends BaseUI
       }
     });
 
-    JLabel launcherName = new JLabel(BuildConfig.getName());
+    JLabel launcherName = new JLabel("Knight Launcher Plus");
     launcherName.setFont(Fonts.getFont("default", 15.0f, Font.BOLD));
     launcherName.setHorizontalAlignment(SwingConstants.CENTER);
     launcherName.setVerticalAlignment(SwingConstants.CENTER);
@@ -260,10 +260,11 @@ public class LauncherUI extends BaseUI
     sidePane.add(serverInfoButton);
 
     Icon playerCountTitleIcon = FontIcon.of(FontAwesome.USERS, Scale.px(17), CustomColors.INTERFACE_DEFAULT);
-    JLabel playerCountTitleLabel = new JLabel(_localeManager.getValue("m.players_online"));
+    playerCountTitleLabel = new JLabel(_localeManager.getValue("m.players_online"));
     playerCountTitleLabel.setIcon(playerCountTitleIcon);
     playerCountTitleLabel.setBounds(Scale.rect(35, 188, 135, 20));
     playerCountTitleLabel.setFont(Fonts.getFont("default", 13.0f, Font.BOLD | Font.ITALIC));
+    playerCountTitleLabel.setVisible(false);
     sidePane.add(playerCountTitleLabel);
 
     playerCountLabel = new JLabel("");
@@ -327,10 +328,27 @@ public class LauncherUI extends BaseUI
     });
     sidePane.add(modButton);
 
+    Icon serverIcon = FontIcon.of(FontAwesome.SERVER, Scale.px(16), ColorUtil.getForegroundColor());
+    serverButton = new JButton(_localeManager.getValue("b.server"));
+    serverButton.setIcon(serverIcon);
+    serverButton.setBounds(Scale.rect(28, sideButtonsY + 78, 125, 35));
+    serverButton.setHorizontalAlignment(SwingConstants.LEFT);
+    serverButton.setFont(Fonts.getFont("default", 11.0f, Font.BOLD));
+    serverButton.setFocusPainted(false);
+    serverButton.setFocusable(false);
+    serverButton.setBorderPainted(false);
+    serverButton.setBackground(CustomColors.INTERFACE_BUTTON_BACKGROUND);
+    serverButton.setForeground(Color.WHITE);
+    serverButton.setToolTipText(_localeManager.getValue("b.server"));
+    serverButton.addActionListener(action -> {
+      _ctx.getApp().showUI(ServerHostUI.class);
+    });
+    sidePane.add(serverButton);
+
     Icon editorsIcon = FontIcon.of(FontAwesome.PENCIL, Scale.px(16), ColorUtil.getForegroundColor());
     editorsButton = new JButton(_localeManager.getValue("b.editors"));
     editorsButton.setIcon(editorsIcon);
-    editorsButton.setBounds(Scale.rect(28, sideButtonsY + 78, 125, 35));
+    editorsButton.setBounds(Scale.rect(28, sideButtonsY + 117, 125, 35));
     editorsButton.setHorizontalAlignment(SwingConstants.LEFT);
     editorsButton.setFont(Fonts.getFont("default", 11.0f, Font.BOLD));
     editorsButton.setFocusPainted(false);
@@ -348,7 +366,7 @@ public class LauncherUI extends BaseUI
     Icon silverweaveIcon = FontIcon.of(FontAwesome.MAGIC, Scale.px(16), Color.WHITE);
     silverweaveButton = new JButton(_localeManager.getValue("b.silverweave"));
     silverweaveButton.setIcon(silverweaveIcon);
-    silverweaveButton.setBounds(Scale.rect(28, sideButtonsY + 117, 125, 35));
+    silverweaveButton.setBounds(Scale.rect(28, sideButtonsY + 156, 125, 35));
     silverweaveButton.setHorizontalAlignment(SwingConstants.LEFT);
     silverweaveButton.setFont(Fonts.getFont("default", 11.0f, Font.BOLD));
     silverweaveButton.setFocusPainted(false);
@@ -364,23 +382,6 @@ public class LauncherUI extends BaseUI
       _ctx.getApp().getUI(EditorsUI.class).eventHandler.startEditor("editor_silverweave");
     });
     sidePane.add(silverweaveButton);
-
-    Icon serverIcon = FontIcon.of(FontAwesome.SERVER, Scale.px(16), ColorUtil.getForegroundColor());
-    hostServerButton = new JButton(_localeManager.getValue("b.host_server"));
-    hostServerButton.setIcon(serverIcon);
-    hostServerButton.setBounds(Scale.rect(28, sideButtonsY + 156, 125, 35));
-    hostServerButton.setHorizontalAlignment(SwingConstants.LEFT);
-    hostServerButton.setFont(Fonts.getFont("default", 11.0f, Font.BOLD));
-    hostServerButton.setFocusPainted(false);
-    hostServerButton.setFocusable(false);
-    hostServerButton.setBorderPainted(false);
-    hostServerButton.setBackground(CustomColors.INTERFACE_BUTTON_BACKGROUND);
-    hostServerButton.setForeground(Color.WHITE);
-    hostServerButton.setToolTipText(_localeManager.getValue("b.host_server"));
-    hostServerButton.addActionListener(action -> {
-      _ctx.getApp().showUI(ServerHostUI.class);
-    });
-    sidePane.add(hostServerButton);
 
     BufferedImage discordIconBase = ImageUtil.resizeImagePreserveTransparency(
       ImageUtil.loadImageWithinJar("/rsrc/img/icon-discord.png"), HiDpi.px(Scale.px(16)), HiDpi.px(Scale.px(16)));
@@ -1110,6 +1111,7 @@ public class LauncherUI extends BaseUI
     this.modButton.setEnabled(!block);
     this.editorsButton.setEnabled(!block);
     if (this.silverweaveButton != null) this.silverweaveButton.setEnabled(!block);
+    if (this.serverButton != null) this.serverButton.setEnabled(!block);
   }
 
   public void updatePlayerCountTooltip (PlayerCount playerCount)
@@ -1164,9 +1166,10 @@ public class LauncherUI extends BaseUI
   public JButton modButton;
   public JButton editorsButton;
   public JButton silverweaveButton;
-  public JButton hostServerButton;
+  public JButton serverButton;
   public JButton playerCountTooltipButton;
   public JLabel playerCountLabel;
+  public JLabel playerCountTitleLabel;
   public JLabel selectedServerLabel;
   public JButton serverInfoButton;
 

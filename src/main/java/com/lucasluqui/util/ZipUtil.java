@@ -255,6 +255,12 @@ public class ZipUtil
   public static void unpackJar (java.util.zip.ZipFile jar, File target, boolean cleanExistingDirs)
     throws IOException
   {
+    unpackJar(jar, target, cleanExistingDirs, null);
+  }
+
+  public static void unpackJar (java.util.zip.ZipFile jar, File target, boolean cleanExistingDirs, java.util.function.Predicate<String> filter)
+    throws IOException
+  {
     if (cleanExistingDirs) {
       Enumeration<? extends ZipEntry> entries = jar.entries();
       while (entries.hasMoreElements()) {
@@ -274,6 +280,9 @@ public class ZipUtil
     Enumeration<? extends ZipEntry> entries = jar.entries();
     while (entries.hasMoreElements()) {
       ZipEntry entry = entries.nextElement();
+      if (filter != null && !filter.test(entry.getName())) {
+        continue;
+      }
       File efile = new File(target, entry.getName());
 
       // if we're unpacking a normal jar file, it will have special path
@@ -300,6 +309,40 @@ public class ZipUtil
         throw new IOException(
           Logger.format("Failure unpacking", "jar", jar, "entry", efile), e);
       }
+    }
+  }
+
+  /**
+   * Removes files inside the zip matching the given predicate.
+   *
+   * @return the number of removed files
+   */
+  public static int removeMatchingEntries (Path zip, java.util.function.Predicate<String> matcher) throws IOException
+  {
+    Path original = zip.toAbsolutePath();
+    if (!Files.isRegularFile(original)) return 0;
+    Path temporary = Files.createTempFile(original.getParent(), original.getFileName() + ".", ".tmp");
+    try {
+      Files.copy(original, temporary, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.COPY_ATTRIBUTES);
+      int count = 0;
+      try (ZipFile zipFile = new ZipFile(temporary.toFile())) {
+        List<String> toRemove = new ArrayList<>();
+        for (FileHeader header : zipFile.getFileHeaders()) {
+          if (!header.isDirectory() && matcher.test(header.getFileName())) {
+            toRemove.add(header.getFileName());
+          }
+        }
+        if (!toRemove.isEmpty()) {
+          zipFile.removeFiles(toRemove);
+          count = toRemove.size();
+        }
+      }
+      if (count > 0) {
+        Files.move(temporary, original, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+      }
+      return count;
+    } finally {
+      Files.deleteIfExists(temporary);
     }
   }
 

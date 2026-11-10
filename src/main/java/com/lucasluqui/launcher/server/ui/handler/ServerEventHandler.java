@@ -42,6 +42,9 @@ public class ServerEventHandler {
     public void startServer() {
         int port = parsePort();
         if (port < 0) return;
+        if (_ui != null) {
+            _ui.setStartingState();
+        }
         runServerAction(() -> _hostManager.startServer(port));
     }
 
