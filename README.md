@@ -49,9 +49,9 @@ Open source game launcher for Spiral Knights with extended features, custom serv
 The server is the [Tortodrone](https://github.com/N0rule/Tortodrone) engine, started from the **Host Server** tab. The launcher carries the engine jar; the first **Start** also downloads the engine's content pack (about 20 MB, checked against a pinned SHA-256) into `KnightLauncher/server/`, so it needs a connection once. It needs nothing from your game install except a copy of the game to connect with.
 
 1. Open the **Host Server** tab.
-2. Optional: **Server Settings** changes the port (default `47624`), LAN/VPN access (off by default: the server then listens on this computer only), player limit, start map, log mode and combat timing. Changes apply the next time the server starts; the window offers to restart a running one.
+2. Optional: **Server Settings** changes the port (default `47624`), LAN/VPN access (off by default: the server then listens on this computer only), player limit, start town, welcome message, log mode and log rotation, and combat timing. Every value is checked against what Tortodrone accepts before it is saved. Changes apply the next time the server starts; the window offers to restart a running one.
 3. **Start**. The console shows the startup log (also saved in `KnightLauncher/server/server.log`, the previous run in `server.log.old`); a failure to start is shown in a dialog.
-4. Create accounts in **Server Settings → Accounts & Knights** (the server has to be running), then **Connect & Play** selects **Local Server** and launches the game. The same tab grants currency and items, toggles game master and deletes accounts.
+4. Create accounts in **Server Settings → Accounts & Knights** (the server has to be running), then **Connect & Play** selects **Local Server** and launches the game. That tab also resets passwords, toggles game master, deletes accounts and knights, edits a knight's crowns, energy, rank and prestige, and grants currency and items; each action shows the server's own answer. **Players** lists who is connected. **Maintenance** has the address and public key your friends need (also copied by the clipboard button on the Host Server tab), backups and restore, and a start-over that keeps the server key by default so friends do not need a new one.
 
 The box under the console sends commands to the server's own console (the server tells you what it understands).
 
@@ -76,7 +76,7 @@ KnightLauncherPlus integrates **Tortodrone** as its standalone clean-room game s
   - `inventory_items`: Equipped and bag items, accessories, and variants.
 - **Administration UI**:
   - Interactive Server Hosting tab with real-time logs, player counters, and command console.
-  - Server Settings dialog for live configuration and account administration (create, delete, toggle GM, grant currency/items).
+  - Server Settings window: configuration, accounts and knights, online players, join information, backups and restore. Accounts and knights are changed through the running server itself; kick, ban and broadcast are not offered because the server has no console command for them.
 
 ## Building & Quick Deploying
 

@@ -1,5 +1,6 @@
 package com.lucasluqui.launcher.server;
 
+import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
@@ -7,7 +8,10 @@ import java.io.Writer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import org.yaml.snakeyaml.DumperOptions;
 import org.yaml.snakeyaml.Yaml;
@@ -20,10 +24,36 @@ public final class ServerPropertiesFile {
 
     private ServerPropertiesFile() {}
 
+    /** The server runs in {@code KnightLauncher/server}, so this is the file it reads. */
     public static File resolve(File gameDir) {
-        File preferred = new File(gameDir, "KnightLauncher/server/config/server.yml");
-        File fallback = new File(gameDir, "config/server.yml");
-        return !preferred.isFile() && fallback.isFile() ? fallback : preferred;
+        return new File(gameDir, "KnightLauncher/server/config/server.yml");
+    }
+
+    /**
+     * The towns the server can start in: the folders under {@code content/maps} whose map.yml says {@code type: town}.
+     * (Tortodrone refuses any other kind of map as the entry map.) Empty if the content pack is not installed yet.
+     */
+    public static List<String> townMaps(File serverDir) {
+        List<String> towns = new ArrayList<>();
+        File[] maps = new File(serverDir, "content/maps").listFiles(File::isDirectory);
+        if (maps == null) return towns;
+        for (File map : maps) {
+            if (!ServerSettings.MAP_NAME.matcher(map.getName()).matches()) continue;
+            File yml = new File(map, "map.yml");
+            if (!yml.isFile()) continue;
+            try (BufferedReader in = Files.newBufferedReader(yml.toPath(), StandardCharsets.UTF_8)) {
+                for (String line; (line = in.readLine()) != null; ) {
+                    if (line.startsWith("type:")) {
+                        if (line.substring(5).trim().equals("town")) towns.add(map.getName());
+                        break;
+                    }
+                }
+            } catch (IOException ignored) {
+                // An unreadable map is not offered.
+            }
+        }
+        Collections.sort(towns);
+        return towns;
     }
 
     /** The settings the launcher shows, from server.yml and combat.yml (missing files and keys are skipped). */
@@ -34,6 +64,8 @@ public final class ServerPropertiesFile {
         copy(server, "welcome-message", result, "server.welcomeMessage");
         copy(server, "startup-map", result, "server.startupMap");
         copy(server, "log-mode", result, "server.logMode");
+        copy(server, "log-max-mib", result, "server.logMaxMib");
+        copy(server, "log-retention", result, "server.logRetention");
         if (server.containsKey("server-ip")) {
             result.put("server.allowLan", String.valueOf("0.0.0.0".equals(String.valueOf(server.get("server-ip")))));
         }
@@ -49,6 +81,8 @@ public final class ServerPropertiesFile {
         putText(server, "welcome-message", values.get("server.welcomeMessage"));
         putText(server, "startup-map", values.get("server.startupMap"));
         putText(server, "log-mode", values.get("server.logMode"));
+        putInt(server, "log-max-mib", values.get("server.logMaxMib"));
+        putInt(server, "log-retention", values.get("server.logRetention"));
         if (values.containsKey("server.allowLan")) {
             server.put("server-ip", Boolean.parseBoolean(values.get("server.allowLan")) ? "0.0.0.0" : "127.0.0.1");
         }

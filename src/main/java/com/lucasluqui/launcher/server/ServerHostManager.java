@@ -10,21 +10,20 @@ import java.io.Writer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.Statement;
-import java.text.SimpleDateFormat;
+import java.nio.file.Path;
+import java.sql.SQLException;
 import java.util.ArrayList;
-import java.util.Date;
 import java.util.LinkedList;
 import java.util.List;
-import java.util.Map;
-import java.util.Properties;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.function.Consumer;
 
 import com.google.inject.Inject;
@@ -58,7 +57,6 @@ public class ServerHostManager {
     private volatile boolean _starting = false;
     private volatile boolean _ready = false;
     private volatile boolean _stopRequested = false;
-    private volatile int _players = 0;
     private volatile String _lastError = null;
     private volatile String _lanAddress = null;
     private volatile long _lanAddressAt = 0;
@@ -68,6 +66,16 @@ public class ServerHostManager {
     /** Serializes start, stop, restart and reset. Never held by anything the UI calls on its own thread. */
     private final Object _lifecycle = new Object();
     private final Object _commandLock = new Object();
+    /** Talks to the console of the running process; a new one per start, so counters never outlive a process. */
+    private volatile ServerConsoleClient _console = new ServerConsoleClient(line -> false);
+    /** Runs everything typed into the console, one thing at a time: a password prompt must not be interleaved. */
+    private final ExecutorService _consoleExec = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "ServerConsole");
+        t.setDaemon(true);
+        return t;
+    });
+    private volatile ScheduledExecutorService _poller;
+    private volatile String _databaseProblem = null;
     private volatile int _maxClients = -1;
     private final List<Consumer<String>> _logListeners = new CopyOnWriteArrayList<>();
     private final LinkedList<String> _logHistory = new LinkedList<>();
@@ -86,13 +94,13 @@ public class ServerHostManager {
         _lastError = null;
         openLogFile();
         if (!ServerNet.validPort(port)) {
-            return fail("Invalid port " + port + " (use 1-65535)");
+            return fail(_localeManager.getValue("m.server_invalid_port", String.valueOf(port)));
         }
 
         File serverDir = new File(LauncherGlobals.USER_DIR, "KnightLauncher/server");
         File configFile = new File(serverDir, "config/server.yml");
 
-        String problem = TortodroneInstaller.ensureInstalled(this::dispatchLog); // quick when the engine is already current
+        String problem = TortodroneInstaller.ensureInstalled(this::dispatchLog, _localeManager::getValue); // quick when the engine is already current
         if (problem != null) {
             return fail(problem);
         }
@@ -120,7 +128,7 @@ public class ServerHostManager {
 
         _ready = false;
         _stopRequested = false;
-        _players = 0;
+        _console = new ServerConsoleClient(this::writeLine);
         _starting = true;
         CountDownLatch started = new CountDownLatch(1);
         String[] failure = new String[1];
@@ -134,7 +142,7 @@ public class ServerHostManager {
             _commands = new OutputStreamWriter(_process.getOutputStream(), StandardCharsets.UTF_8);
         } catch (IOException e) {
             log.error("Failed to start Tortodrone server process", e);
-            return fail("Could not start server process: " + e.getMessage());
+            return fail(_localeManager.getValue("m.server_process_failed", String.valueOf(e.getMessage())));
         }
 
         Process process = _process;
@@ -157,12 +165,13 @@ public class ServerHostManager {
             _process = null;
             _commands = null;
             return fail(failure[0] != null ? failure[0]
-                : answered ? "The server process exited before it was ready"
-                : "The server did not start within " + START_TIMEOUT_SECONDS + "s");
+                : answered ? _localeManager.getValue("m.server_exited_early")
+                : _localeManager.getValue("m.server_start_timeout", String.valueOf(START_TIMEOUT_SECONDS)));
         }
 
         _port = port;
         _startedAt = System.currentTimeMillis();
+        startStatusPolling();
         _settingsManager.setValue("server.port", String.valueOf(port));
 
         if (pubKeyFile.isFile()) {
@@ -232,13 +241,11 @@ public class ServerHostManager {
                 } else if (line.contains("Server ready")) {
                     _ready = true;
                     started.countDown();
-                } else if (line.contains("Server startup failed:") || line.startsWith(ServerNet.FATAL)) {
+                } else if (line.contains("Server startup failed:")) {
                     failure[0] = line;
-                } else if (line.startsWith(ServerNet.PLAYERS)) {
-                    try {
-                        _players = Integer.parseInt(line.substring(ServerNet.PLAYERS.length()).trim());
-                    } catch (NumberFormatException ignored) {}
                 }
+                // The status checks the launcher runs behind its own commands are not for the console view.
+                if (_console.onLine(line)) continue;
                 dispatchLog(line);
             }
         } catch (IOException e) {
@@ -259,14 +266,14 @@ public class ServerHostManager {
         synchronized (this) {
             if (_process != process) return;
             if (_ready && !_stopRequested) {
-                dispatchLog("[ERROR] The server process ended unexpectedly (exit code " + code + ").");
+                dispatchLog("[ERROR] " + _localeManager.getValue("m.server_ended_unexpectedly", String.valueOf(code)));
             }
             _process = null;
             _commands = null;
             _ready = false;
-            _players = 0;
             _startedAt = 0;
         }
+        stopStatusPolling();
         closeLogFile();
     }
 
@@ -299,11 +306,11 @@ public class ServerHostManager {
                 _process = null;
                 _commands = null;
                 _ready = false;
-                _players = 0;
                 _startedAt = 0;
             }
         }
-        dispatchLog("[INFO] Server stopped.");
+        stopStatusPolling();
+        dispatchLog("[INFO] " + _localeManager.getValue("m.server_stopped"));
         closeLogFile();
     }
 
@@ -314,40 +321,56 @@ public class ServerHostManager {
         }
     }
 
-    public boolean resetServerData() {
+    /**
+     * Retires the server's data into a backup and starts it from nothing next time (stops the server first). With
+     * {@code keepKeys} the server key pair stays, so players do not need a new public key. Call off the UI thread.
+     */
+    public boolean resetServerData(boolean keepKeys) {
         synchronized (_lifecycle) {
-            return resetLocked();
-        }
-    }
-
-    private boolean resetLocked() {
-        stopServer();
-        File serverDir = new File(LauncherGlobals.USER_DIR, "KnightLauncher/server");
-        File dataDir = new File(serverDir, "data");
-
-        if (dataDir.exists()) {
-            String ts = new SimpleDateFormat("yyyyMMdd_HHmmss").format(new Date());
-            File backupDir = new File(serverDir, "data_backup_" + ts);
+            stopServer();
             try {
-                Files.move(dataDir.toPath(), backupDir.toPath(), StandardCopyOption.REPLACE_EXISTING);
-                dispatchLog("[INFO] Existing server data archived to " + backupDir.getName());
+                ServerBackups.Backup backup = ServerBackups.reset(serverDir().toPath(), keepKeys);
+                synchronized (_logHistory) {
+                    _logHistory.clear();
+                }
+                dispatchLog("[INFO] " + _localeManager.getValue("m.server_data_archived", backup.name()));
+                return true;
             } catch (IOException e) {
-                log.error("Could not move data to backup folder", e);
+                log.error("Could not reset the server data", e);
                 return false;
             }
         }
+    }
 
-        File logFile = new File(serverDir, "server.log");
-        File oldLogFile = new File(serverDir, "server.log.old");
-        if (logFile.exists()) logFile.delete();
-        if (oldLogFile.exists()) oldLogFile.delete();
-
-        synchronized (_logHistory) {
-            _logHistory.clear();
+    /** Backs up the server's data and settings (stops the server first, a running database cannot be copied safely). */
+    public ServerBackups.Backup backupServerData() throws IOException {
+        synchronized (_lifecycle) {
+            stopServer();
+            ServerBackups.Backup backup = ServerBackups.create(serverDir().toPath(), null);
+            dispatchLog("[INFO] " + _localeManager.getValue("m.server_data_archived", backup.name()));
+            return backup;
         }
+    }
 
-        dispatchLog("[INFO] Server data has been reset to a clean state.");
-        return true;
+    /** Puts a backup back (stops the server first). The state before is kept as a "before-restore" backup. */
+    public void restoreServerData(String backupName) throws IOException {
+        synchronized (_lifecycle) {
+            stopServer();
+            ServerBackups.restore(serverDir().toPath(), backupName);
+            invalidateConfigCache();
+        }
+    }
+
+    public List<ServerBackups.Backup> listBackups() throws IOException {
+        return ServerBackups.list(serverDir().toPath());
+    }
+
+    public void deleteBackup(String backupName) throws IOException {
+        ServerBackups.delete(serverDir().toPath(), backupName);
+    }
+
+    public static File serverDir() {
+        return new File(LauncherGlobals.USER_DIR, "KnightLauncher/server");
     }
 
     public boolean isServerRunning() {
@@ -355,14 +378,17 @@ public class ServerHostManager {
         return _ready && process != null && process.isAlive();
     }
 
+    /** The port the server listens on now, or the configured one when it is not running. */
     public int getServerPort() {
-        if (isServerRunning()) {
-            return _port;
-        }
+        return isServerRunning() ? _port : getConfiguredPort();
+    }
+
+    /** The port the next start will use (changed in the settings window; a running server keeps its own until restarted). */
+    public int getConfiguredPort() {
         try {
             return Integer.parseInt(_settingsManager.getValue("server.port", String.valueOf(ServerNet.DEFAULT_PORT)));
         } catch (Exception e) {
-            return _port;
+            return ServerNet.DEFAULT_PORT;
         }
     }
 
@@ -371,8 +397,14 @@ public class ServerHostManager {
         return _starting;
     }
 
+    /** Knights signed in right now, from the server's own status (polled every few seconds; 0 when stopped). */
     public int getActivePlayers() {
-        return _players;
+        return isServerRunning() ? _console.status().players() : 0;
+    }
+
+    /** Connections open right now, including ones that have not signed in yet. */
+    public int getOpenConnections() {
+        return isServerRunning() ? _console.status().sessions() : 0;
     }
 
     /** The player limit from server.yml, read once (the status line asks every second); see {@link #invalidateConfigCache()}. */
@@ -395,136 +427,205 @@ public class ServerHostManager {
         _maxClients = -1;
     }
 
-    public static record ServerAccount(int id, String username, boolean gameMaster, long createdAt, int knightCount, String knights) {}
-
-    private static File databaseFile() {
-        return new File(LauncherGlobals.USER_DIR, "KnightLauncher/server/data/tortodrone.db");
+    private ServerDatabase database() {
+        return new ServerDatabase(new File(serverDir(), "data/tortodrone.db"));
     }
 
-    /** Opens the server's database, waiting a moment (not failing at once) if the running server holds it. */
-    private static Connection connect(boolean readOnly) throws java.sql.SQLException {
-        Properties properties = new Properties();
-        if (readOnly) properties.setProperty("open_mode", "1"); // SQLITE_OPEN_READONLY
-        Connection connection = DriverManager.getConnection("jdbc:sqlite:" + databaseFile().getAbsolutePath(), properties);
-        try (Statement statement = connection.createStatement()) {
-            statement.execute("PRAGMA busy_timeout = 3000");
-            if (!readOnly) statement.execute("PRAGMA foreign_keys = ON");
-        }
-        return connection;
+    /** Why the database could not be read the last time (an unsupported schema, say), or null. */
+    public String getDatabaseProblem() {
+        return _databaseProblem;
     }
 
-    public List<ServerAccount> getAccounts() {
-        List<ServerAccount> list = new ArrayList<>();
-        if (!databaseFile().isFile()) return list;
-        try (Connection conn = connect(true);
-             Statement stmt = conn.createStatement();
-             ResultSet rs = stmt.executeQuery(
-                 "SELECT a.id, a.username, a.game_master, a.created_at, " +
-                 "COUNT(k.id) AS k_count, GROUP_CONCAT(k.name, ', ') AS k_names " +
-                 "FROM accounts a LEFT JOIN knights k ON a.id = k.account_id " +
-                 "GROUP BY a.id ORDER BY a.id ASC")) {
-            while (rs.next()) {
-                list.add(new ServerAccount(
-                    rs.getInt("id"),
-                    rs.getString("username"),
-                    rs.getInt("game_master") != 0,
-                    rs.getLong("created_at"),
-                    rs.getInt("k_count"),
-                    rs.getString("k_names")
-                ));
-            }
-        } catch (Exception e) {
+    /** Every account (read-only; empty before the server has made its database). Call off the UI thread. */
+    public List<ServerDatabase.Account> getAccounts() {
+        try {
+            List<ServerDatabase.Account> accounts = database().accounts();
+            _databaseProblem = null;
+            return accounts;
+        } catch (SQLException e) {
+            _databaseProblem = e.getMessage();
             log.warning("Could not read accounts from tortodrone.db: " + e.getMessage());
-        }
-        return list;
-    }
-
-    /**
-     * Creates an account. A running server does it itself (it asks for the password twice on its console; the server
-     * is the only writer of its database while it runs). Without a running server there is nobody to hash the
-     * password, so this needs the server.
-     *
-     * @return Whether the account exists afterwards (waits a moment for the server to finish).
-     */
-    public boolean createAccount(String username, String password, boolean gameMaster) {
-        if (!isServerRunning()) return false;
-        if (accountExists(username)) return false; // the password lines would reach the console as commands
-        if (!sendRaw("account create " + username + (gameMaster ? " gm" : ""))) return false;
-        sendRaw(password);
-        sendRaw(password);
-        for (int i = 0; i < 20; i++) {
-            if (accountExists(username)) return true;
-            try {
-                Thread.sleep(150);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return false;
-            }
-        }
-        return false;
-    }
-
-    private boolean accountExists(String username) {
-        for (ServerAccount account : getAccounts()) {
-            if (account.username().equalsIgnoreCase(username)) return true;
-        }
-        return false;
-    }
-
-    /**
-     * Flips the account's game master flag. A running server does it itself (it keeps caches and revisions that
-     * writing the database behind its back would leave stale); a stopped one is edited directly.
-     */
-    public boolean toggleGameMaster(int accountId, String username, boolean currentGm) {
-        boolean newGm = !currentGm;
-        if (isServerRunning()) {
-            return sendRaw("gm " + username + " " + newGm);
-        }
-        if (!databaseFile().isFile()) return false;
-        try (Connection conn = connect(false);
-             PreparedStatement ps = conn.prepareStatement("UPDATE accounts SET game_master = ? WHERE id = ?")) {
-            ps.setInt(1, newGm ? 1 : 0);
-            ps.setInt(2, accountId);
-            return ps.executeUpdate() == 1;
-        } catch (Exception e) {
-            log.warning("Could not update game_master in tortodrone.db: " + e.getMessage());
-            return false;
+            return new ArrayList<>();
         }
     }
 
-    /** Deletes the account with its knights: by the running server itself (it asks to confirm by typing the name), else directly. */
-    public boolean deleteAccount(int accountId, String username) {
-        if (isServerRunning()) {
-            return sendRaw("account delete " + username) && sendRaw(username);
-        }
-        if (!databaseFile().isFile()) return false;
-        try (Connection conn = connect(false);
-             PreparedStatement ps = conn.prepareStatement("DELETE FROM accounts WHERE id = ?")) {
-            ps.setInt(1, accountId);
-            return ps.executeUpdate() == 1;
-        } catch (Exception e) {
-            log.warning("Could not delete account in tortodrone.db: " + e.getMessage());
-            return false;
-        }
-    }
-
-    public List<String> getAllKnights() {
-        List<String> list = new ArrayList<>();
-        if (!databaseFile().isFile()) return list;
-        try (Connection conn = connect(true);
-             Statement stmt = conn.createStatement();
-             ResultSet rs = stmt.executeQuery("SELECT DISTINCT name FROM knights ORDER BY name ASC")) {
-            while (rs.next()) {
-                list.add(rs.getString("name"));
-            }
-        } catch (Exception e) {
+    /** Every knight with balances and progress (read-only). Call off the UI thread. */
+    public List<ServerDatabase.Knight> getKnights() {
+        try {
+            List<ServerDatabase.Knight> knights = database().knights();
+            _databaseProblem = null;
+            return knights;
+        } catch (SQLException e) {
+            _databaseProblem = e.getMessage();
             log.warning("Could not read knights from tortodrone.db: " + e.getMessage());
+            return new ArrayList<>();
         }
-        return list;
     }
 
-    public long getUptimeSeconds() {
-        return isServerRunning() ? (System.currentTimeMillis() - _startedAt) / 1000 : 0;
+    // ---- Changes: always made by the running server itself, through its console ------------------------------------
+
+    /** The result of a console command; {@code ok} is false with the server's own reason when it refused. */
+    public ServerConsoleClient.Result execute(String command, List<String> answers) {
+        if (!isServerRunning()) return new ServerConsoleClient.Result(false, "not-running", List.of());
+        ServerConsoleClient console = _console;
+        Future<ServerConsoleClient.Result> future = _consoleExec.submit(() -> console.run(command, answers));
+        try {
+            return future.get(45, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return new ServerConsoleClient.Result(false, "interrupted", List.of());
+        } catch (Exception e) {
+            return new ServerConsoleClient.Result(false, "timeout", List.of());
+        }
+    }
+
+    public ServerConsoleClient.Result createAccount(String username, String password, boolean gameMaster) {
+        if (!ServerInput.validUsername(username)) return invalid("username");
+        if (!ServerInput.validPassword(password)) return invalid("password");
+        return execute("account create " + username + (gameMaster ? " gm" : ""), List.of(password, password));
+    }
+
+    public ServerConsoleClient.Result resetPassword(String username, String password) {
+        if (!ServerInput.validUsername(username)) return invalid("username");
+        if (!ServerInput.validPassword(password)) return invalid("password");
+        return execute("account password " + username, List.of(password, password));
+    }
+
+    public ServerConsoleClient.Result setGameMaster(String username, boolean gameMaster) {
+        if (!ServerInput.validUsername(username)) return invalid("username");
+        return execute("gm " + username + " " + gameMaster, List.of());
+    }
+
+    /** Deletes the account with its knights (the server asks for its name typed back). */
+    public ServerConsoleClient.Result deleteAccount(String username) {
+        if (!ServerInput.validUsername(username)) return invalid("username");
+        return execute("account delete " + username, List.of(username));
+    }
+
+    /** Deletes one knight with its items and balances (the server asks for its name typed back). */
+    public ServerConsoleClient.Result deleteKnight(String username, String knight) {
+        if (!ServerInput.validUsername(username) || !ServerInput.validKnight(knight)) return invalid("knight");
+        return execute("knight delete " + username + " " + knight, List.of(knight));
+    }
+
+    /** Sets a balance ({@code crowns} or {@code energy}) to an exact amount. */
+    public ServerConsoleClient.Result setBalance(String knight, String currency, long amount) {
+        if (!ServerInput.validKnight(knight) || !isCurrency(currency) || amount < 0 || amount > Integer.MAX_VALUE) return invalid("knight");
+        return execute("set " + knight + " " + currency + " " + amount, List.of());
+    }
+
+    /** Adds to (or, negative, takes from) a balance. */
+    public ServerConsoleClient.Result grantBalance(String knight, String currency, long amount) {
+        if (!ServerInput.validKnight(knight) || !isCurrency(currency) || Math.abs(amount) > Integer.MAX_VALUE) return invalid("knight");
+        return execute("grant " + knight + " " + currency + " " + amount, List.of());
+    }
+
+    public ServerConsoleClient.Result setRank(String knight, int rank, int subrank) {
+        if (!ServerInput.validKnight(knight) || rank < 1 || rank > 10 || subrank < 1 || subrank > 4) return invalid("knight");
+        return execute("rank " + knight + " " + rank + " " + subrank, List.of());
+    }
+
+    public ServerConsoleClient.Result setPrestige(String knight, int prestige) {
+        if (!ServerInput.validKnight(knight) || prestige < 0) return invalid("knight");
+        return execute("prestige " + knight + " " + prestige, List.of());
+    }
+
+    public ServerConsoleClient.Result giveItem(String knight, int count, String item) {
+        if (!ServerInput.validKnight(knight) || count < 1 || count > 20 || !ServerInput.validItem(item)) return invalid("item");
+        return execute("giveitem " + knight + " " + count + " " + item, List.of());
+    }
+
+    private static boolean isCurrency(String currency) {
+        return "crowns".equals(currency) || "energy".equals(currency);
+    }
+
+    private static ServerConsoleClient.Result invalid(String what) {
+        return new ServerConsoleClient.Result(false, "invalid-" + what, List.of());
+    }
+
+    /** Someone signed in or connected, as the console's {@code players} lists them. */
+    public record OnlinePlayer(int session, String account, String knight, String scene, int seconds, String state) {}
+
+    private static final Pattern PLAYER_ROW = Pattern.compile("^(\\d+) \\| (.+?) \\| (.+?) \\| (.+?) \\| (\\d+)s \\| (.+)$");
+    private static final Pattern PLAYER_NAME = Pattern.compile("^(.+?) \\(#(\\d+|null)\\)$");
+
+    /** Who is connected right now (empty when the server is not running). Call off the UI thread. */
+    public List<OnlinePlayer> getOnlinePlayers() {
+        List<OnlinePlayer> players = new ArrayList<>();
+        if (!isServerRunning()) return players;
+        ServerConsoleClient console = _console;
+        Future<ServerConsoleClient.Result> future = _consoleExec.submit(() -> console.query("players"));
+        try {
+            for (String line : future.get(15, TimeUnit.SECONDS).lines()) {
+                OnlinePlayer player = parsePlayerRow(line);
+                if (player != null) players.add(player);
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (Exception ignored) {
+            // The list stays as far as it got.
+        }
+        return players;
+    }
+
+    static OnlinePlayer parsePlayerRow(String line) {
+        Matcher m = PLAYER_ROW.matcher(line);
+        if (!m.matches()) return null;
+        return new OnlinePlayer(Integer.parseInt(m.group(1)), nameOf(m.group(2)), nameOf(m.group(3)),
+            m.group(4).startsWith("null") ? "" : m.group(4), Integer.parseInt(m.group(5)), m.group(6));
+    }
+
+    /** "Bob (#4)" is Bob; "null (#null)" is nobody yet. */
+    private static String nameOf(String text) {
+        Matcher m = PLAYER_NAME.matcher(text);
+        return m.matches() && !m.group(2).equals("null") ? m.group(1) : "";
+    }
+
+    private void startStatusPolling() {
+        stopStatusPolling();
+        ScheduledExecutorService poller = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "ServerStatusPoll");
+            t.setDaemon(true);
+            return t;
+        });
+        _poller = poller;
+        ServerConsoleClient console = _console;
+        poller.scheduleWithFixedDelay(() -> {
+            if (isServerRunning()) {
+                try {
+                    _consoleExec.submit(() -> console.query("status")).get(15, TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                } catch (Exception ignored) {
+                    // The next round tries again.
+                }
+            }
+        }, 2, 5, TimeUnit.SECONDS);
+    }
+
+    private void stopStatusPolling() {
+        ScheduledExecutorService poller = _poller;
+        _poller = null;
+        if (poller != null) poller.shutdownNow();
+    }
+
+    /** What a friend needs to join: the addresses and the server's public key (null before the first start made it). */
+    public String getPublicKey() {
+        File key = new File(serverDir(), "data/keys/public.txt");
+        if (!key.isFile()) return null;
+        try {
+            return Files.readString(key.toPath(), StandardCharsets.UTF_8).trim();
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
+    /** The addresses players can use, each with the port ("192.168.1.5:47624, 10.0.0.2:47624"). */
+    public String getJoinAddresses() {
+        int port = getServerPort();
+        List<String> addresses = new ArrayList<>();
+        for (String host : getLanAddress().split(",\\s*")) addresses.add(host + ":" + port);
+        return String.join(", ", addresses);
     }
 
     public long getUptimeMs() {
@@ -561,27 +662,45 @@ public class ServerHostManager {
         return _lastError;
     }
 
+    /**
+     * A line typed into the console view. It is queued behind anything the launcher itself is doing with the console
+     * (a password exchange must not be interleaved) and its replies show up as normal output.
+     *
+     * @return "" when queued, otherwise why it was not.
+     */
     public String sendCommand(String command) {
         if (!isServerRunning()) {
             return _localeManager.getValue("m.server_cmd_not_running");
         }
-        return sendRaw(command) ? "" : _localeManager.getValue("m.server_cmd_unreachable");
+        String first = command.trim().split("\\s+", 2)[0].toLowerCase(java.util.Locale.ROOT);
+        // Typing stop (with the web admin off) or shutdown ends the process on purpose, which is not a crash.
+        if (first.equals("stop") || first.equals("shutdown") || command.trim().equals("SHUT DOWN PROCESS")) {
+            _stopRequested = true;
+        }
+        _consoleExec.execute(() -> writeLine(command));
+        return "";
     }
 
-    public boolean sendRaw(String command) {
+    /** Writes one line to the process. Used by the console client and for text typed in the console view. */
+    private boolean writeLine(String line) {
         Writer commands = _commands;
         if (commands == null) {
             return false;
         }
-        synchronized (_commandLock) { // lines of one multi-line exchange (a password prompt) must not interleave
+        synchronized (_commandLock) {
             try {
-                commands.write(command.replace('\n', ' ').replace('\r', ' ') + "\n");
+                commands.write(line.replace('\n', ' ').replace('\r', ' ') + "\n");
                 commands.flush();
                 return true;
             } catch (IOException e) {
                 return false;
             }
         }
+    }
+
+    /** Used by stop: the process is told to end. */
+    private boolean sendRaw(String command) {
+        return writeLine(command);
     }
 
     public void addLogListener(Consumer<String> listener) {

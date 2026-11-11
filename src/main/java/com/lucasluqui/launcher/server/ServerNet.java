@@ -9,22 +9,11 @@ import java.util.Enumeration;
 import java.util.List;
 
 /**
- * Server constants and network helpers that need no game classes, so the launcher can use them
- * without loading {@link SpiralServer} (which only runs in its own JVM next to the game jars).
+ * Server constants and network helpers for the launcher (the engine itself runs in its own process).
  */
 public final class ServerNet {
     public static final int DEFAULT_PORT = 47624;
     public static final String LOOPBACK = "127.0.0.1";
-    /**
-     * The server process is started in the game directory, so this is where its files are.
-     * {@code -Dsk.gameDir=...} overrides it, e.g. to run the tests against an installed game.
-     */
-    public static final String GAME_DIR = System.getProperty("sk.gameDir", System.getProperty("user.dir"));
-
-    /** Prefixes of the lines the server process prints for the launcher to parse. */
-    public static final String READY = "[READY] ";
-    public static final String FATAL = "[FATAL] ";
-    public static final String PLAYERS = "[PLAYERS] ";
 
     private ServerNet() {}
 

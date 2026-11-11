@@ -2,8 +2,6 @@ package com.lucasluqui.launcher.server.ui.handler;
 
 import java.awt.Toolkit;
 import java.awt.datatransfer.StringSelection;
-import java.util.ArrayList;
-import java.util.List;
 import javax.swing.JOptionPane;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
@@ -126,14 +124,13 @@ public class ServerEventHandler {
         }
     }
 
+    /** Copies what a friend needs to join: the address(es) with the port, and the server's public key. */
     public void copyAddress() {
-        int port = _hostManager.getServerPort();
-        List<String> addresses = new ArrayList<>();
-        for (String host : _hostManager.getLanAddress().split(",\\s*")) {
-            addresses.add(host + ":" + port);
-        }
-        Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(String.join(", ", addresses)), null);
-        Dialog.push(_localeManager.getValue("m.address_copied"), JOptionPane.INFORMATION_MESSAGE);
+        String key = _hostManager.getPublicKey();
+        String text = _localeManager.getValue("ss.join.text",
+            new String[] {_hostManager.getJoinAddresses(), key != null ? key : _localeManager.getValue("ss.join.nokey")});
+        Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(text), null);
+        Dialog.push(_localeManager.getValue("m.join_info_copied"), JOptionPane.INFORMATION_MESSAGE);
     }
 
     public void updateStatus() {
@@ -142,9 +139,12 @@ public class ServerEventHandler {
             _hostManager.getActivePlayers(), _hostManager.getUptimeMs(), _busy.get() > 0 || _hostManager.isStarting());
     }
 
-    /** The port from the server settings (the Server Settings window is where it is changed). */
+    /**
+     * The port the next start uses: the one set in the Server Settings window. Not the running server's own port, or a
+     * restart right after changing it would put the old port back.
+     */
     private int parsePort() {
-        return _hostManager.getServerPort();
+        return _hostManager.getConfiguredPort();
     }
 
     private void startStatusTimer() {

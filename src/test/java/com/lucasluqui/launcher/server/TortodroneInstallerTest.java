@@ -23,6 +23,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class TortodroneInstallerTest {
     @TempDir Path dir;
+    /** Messages come back as their keys, which is all these tests need to tell them apart. */
+    private static final java.util.function.BiFunction<String, String[], String> KEYS = (key, args) -> key;
 
     private Path zip(Map<String, String> entries) throws IOException {
         Path file = dir.resolve("release.zip");
@@ -104,7 +106,7 @@ public class TortodroneInstallerTest {
         Files.createDirectories(server);
         String pinned = BuildConfig.getTortodroneJarSha256();
         assertFalse(pinned.isEmpty(), "build.properties pins the bundled jar");
-        assertNull(TortodroneInstaller.installEngine(server.toFile(), pinned));
+        assertNull(TortodroneInstaller.installEngine(server.toFile(), pinned, KEYS));
         assertEquals(pinned, TortodroneInstaller.sha256(server.resolve("tortodrone.jar")));
     }
 
@@ -112,7 +114,7 @@ public class TortodroneInstallerTest {
     public void theLicenseAndNoticesTravelWithTheJar() throws IOException {
         Path server = dir.resolve("server");
         Files.createDirectories(server);
-        assertNull(TortodroneInstaller.installEngine(server.toFile(), BuildConfig.getTortodroneJarSha256()));
+        assertNull(TortodroneInstaller.installEngine(server.toFile(), BuildConfig.getTortodroneJarSha256(), KEYS));
         assertTrue(Files.readString(server.resolve("LICENSE")).contains("PolyForm Noncommercial License 1.0.0"));
         assertTrue(Files.readString(server.resolve("NOTICE")).contains("Required Notice: Tortodrone by N0rule"));
         assertTrue(Files.isRegularFile(server.resolve("THIRD-PARTY.md")));
@@ -125,14 +127,14 @@ public class TortodroneInstallerTest {
         Files.createDirectories(server);
         Files.writeString(server.resolve("tortodrone.jar"), "an older launcher's jar");
         String pinned = BuildConfig.getTortodroneJarSha256();
-        assertNull(TortodroneInstaller.installEngine(server.toFile(), pinned));
+        assertNull(TortodroneInstaller.installEngine(server.toFile(), pinned, KEYS));
         assertEquals(pinned, TortodroneInstaller.sha256(server.resolve("tortodrone.jar")));
 
         // A launcher whose bundled jar is not the one it pins must not install it.
         Path other = dir.resolve("other");
         Files.createDirectories(other);
-        String problem = TortodroneInstaller.installEngine(other.toFile(), "0".repeat(64));
-        assertNotNull(problem);
+        String problem = TortodroneInstaller.installEngine(other.toFile(), "0".repeat(64), KEYS);
+        assertEquals("m.engine_damaged", problem);
         assertFalse(Files.exists(other.resolve("tortodrone.jar")));
         assertFalse(Files.exists(other.resolve("tortodrone.jar.tmp")));
     }

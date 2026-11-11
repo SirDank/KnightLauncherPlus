@@ -136,7 +136,7 @@ public class ServerHostUI extends BaseUI {
         centerStatus.add(statusBadge);
 
         int maxClients = hostManager.getMaxClients();
-        playersText = new JLabel("0/" + maxClients + " Online");
+        playersText = new JLabel(_localeManager.getValue("ss.host.online", new String[] {"0", String.valueOf(maxClients)}));
         playersText.setFont(Fonts.getFont("default", 11.0f, Font.PLAIN));
         playersText.setForeground(new Color(0xAA, 0xAA, 0xAA));
         centerStatus.add(playersText);
@@ -263,7 +263,7 @@ public class ServerHostUI extends BaseUI {
         }
 
         int max = hostManager.getMaxClients();
-        playersText.setText(players + "/" + max + " Online");
+        playersText.setText(_localeManager.getValue("ss.host.online", new String[] {String.valueOf(players), String.valueOf(max)}));
         lanAddressText.setText(_localeManager.getValue("m.server_lan_address", hostManager.getLanAddress() + ":" + port));
 
         if (uptimeMs > 0) {
