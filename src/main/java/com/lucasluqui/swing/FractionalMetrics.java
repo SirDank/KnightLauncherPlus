@@ -22,7 +22,7 @@ import java.awt.font.FontRenderContext;
  * <p>
  * Swing has no global switch for it, so it's set by the UI delegates of the components that show text. Text
  * components (text fields, text areas...) are left out on purpose: Swing places their caret and selection using
- * whole-pixel metrics, which would then drift away from the text.
+ * whole-pixel metrics, which would then drift away from the text. Use the ones in {@link FractionalText} instead.
  * <p>
  * Custom painting code drawing text should call {@link #apply(Graphics)} too, before getting any font metrics.
  */
@@ -65,6 +65,14 @@ public final class FractionalMetrics
     public static ComponentUI createUI (JComponent c)
     {
       return new Label();
+    }
+
+    // Labels that ignore the mouse don't count as being under it, so they don't hide the cursor of controls they
+    // overlap. Mouse events skip them already.
+    @Override
+    public boolean contains (JComponent c, int x, int y)
+    {
+      return HandCursor.takesMouse(c) && super.contains(c, x, y);
     }
 
     @Override
@@ -185,6 +193,20 @@ public final class FractionalMetrics
     }
 
     @Override
+    public void installUI (JComponent c)
+    {
+      super.installUI(c);
+      HandCursor.install(c);
+    }
+
+    @Override
+    public void uninstallUI (JComponent c)
+    {
+      HandCursor.uninstall(c);
+      super.uninstallUI(c);
+    }
+
+    @Override
     public void update (Graphics g, JComponent c)
     {
       apply(g);
@@ -205,6 +227,20 @@ public final class FractionalMetrics
     }
 
     @Override
+    public void installUI (JComponent c)
+    {
+      super.installUI(c);
+      HandCursor.install(c);
+    }
+
+    @Override
+    public void uninstallUI (JComponent c)
+    {
+      HandCursor.uninstall(c);
+      super.uninstallUI(c);
+    }
+
+    @Override
     public void update (Graphics g, JComponent c)
     {
       apply(g);
@@ -220,6 +256,20 @@ public final class FractionalMetrics
     }
 
     @Override
+    public void installUI (JComponent c)
+    {
+      super.installUI(c);
+      HandCursor.install(c);
+    }
+
+    @Override
+    public void uninstallUI (JComponent c)
+    {
+      HandCursor.uninstall(c);
+      super.uninstallUI(c);
+    }
+
+    @Override
     public void update (Graphics g, JComponent c)
     {
       apply(g);
@@ -232,6 +282,20 @@ public final class FractionalMetrics
     public static ComponentUI createUI (JComponent c)
     {
       return new TabbedPane();
+    }
+
+    @Override
+    public void installUI (JComponent c)
+    {
+      super.installUI(c);
+      HandCursor.installTabs((JTabbedPane) c);
+    }
+
+    @Override
+    public void uninstallUI (JComponent c)
+    {
+      HandCursor.uninstallTabs((JTabbedPane) c);
+      super.uninstallUI(c);
     }
 
     @Override
