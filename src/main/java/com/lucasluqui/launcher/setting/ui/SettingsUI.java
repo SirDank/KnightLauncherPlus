@@ -83,6 +83,7 @@ public class SettingsUI extends BaseUI
 
     tabbedPane.addTab(_localeManager.getValue("tab.launcher"), createLauncherPanel());
     tabbedPane.addTab(_localeManager.getValue("tab.game"), createGamePanel());
+    tabbedPane.addTab(_localeManager.getValue("tab.graphics"), createGraphicsPanel());
     if (showBetas()) {
       tabbedPane.addTab(_localeManager.getValue("tab.betas"), createBetasPanel());
     }
@@ -320,6 +321,114 @@ public class SettingsUI extends BaseUI
     switchAutoUpdate.addActionListener(eventHandler::autoUpdateChangeEvent);
 
     return launcherPanel;
+  }
+
+  /**
+   * Graphics enhancements (the skgfx javaagent): render scale and sharpening. These are global to the game install,
+   * not per-server, since they ride along in extra.txt whatever server is launched.
+   */
+  protected JPanel createGraphicsPanel ()
+  {
+    JPanel graphicsPanel = new JPanel();
+    graphicsPanel.setLayout(null);
+    graphicsPanel.setBackground(CustomColors.INTERFACE_MAINPANE_BACKGROUND);
+
+    JLabel headerLabel = new JLabel(_localeManager.getValue("tab.graphics"));
+    headerLabel.setHorizontalAlignment(SwingConstants.LEFT);
+    headerLabel.setBounds(Scale.rect(25, 11, 450, 60));
+    headerLabel.setFont(Fonts.getFont("default", 40.0f, Font.BOLD));
+    graphicsPanel.add(headerLabel);
+
+    JLabel labelGfxEnable = new JLabel(_localeManager.getValue("m.gfx_enable"));
+    labelGfxEnable.setBounds(Scale.rect(25, 90, 375, 18));
+    labelGfxEnable.setFont(Fonts.getFont("default", 14.0f, Font.BOLD | Font.ITALIC));
+    graphicsPanel.add(labelGfxEnable);
+
+    JLabel labelGfxEnableExplained = new JLabel(_localeManager.getValue("m.gfx_enable_explained"));
+    labelGfxEnableExplained.setBounds(Scale.rect(25, 110, 600, 16));
+    labelGfxEnableExplained.setFont(Fonts.getFont("default", 11.0f, Font.ITALIC));
+    graphicsPanel.add(labelGfxEnableExplained);
+
+    switchGfxEnabled = new JCheckBox("");
+    switchGfxEnabled.setBounds(Scale.rect(590, 95, 30, 23));
+    switchGfxEnabled.setFocusPainted(false);
+    switchGfxEnabled.setSelected(Settings.gameGfxEnabled);
+    switchGfxEnabled.addActionListener(eventHandler::gfxEnabledChangeEvent);
+    graphicsPanel.add(switchGfxEnabled);
+
+    JSeparator sepScale = new JSeparator();
+    sepScale.setBounds(Scale.rect(25, 145, 600, 16));
+    graphicsPanel.add(sepScale);
+
+    JLabel labelGfxScale = new JLabel(_localeManager.getValue("m.gfx_scale"));
+    labelGfxScale.setBounds(Scale.rect(25, 160, 375, 18));
+    labelGfxScale.setFont(Fonts.getFont("default", 14.0f, Font.BOLD | Font.ITALIC));
+    graphicsPanel.add(labelGfxScale);
+
+    JLabel labelGfxScaleExplained = new JLabel(_localeManager.getValue("m.gfx_scale_explained"));
+    labelGfxScaleExplained.setBounds(Scale.rect(25, 180, 600, 16));
+    labelGfxScaleExplained.setFont(Fonts.getFont("default", 11.0f, Font.ITALIC));
+    graphicsPanel.add(labelGfxScaleExplained);
+
+    sliderGfxScale = new JSlider(JSlider.HORIZONTAL, 50, 200, Settings.gameGfxScale);
+    sliderGfxScale.setBounds(Scale.rect(25, 200, 350, 40));
+    sliderGfxScale.setFocusable(false);
+    sliderGfxScale.setPaintTicks(true);
+    sliderGfxScale.setMinorTickSpacing(5);
+    sliderGfxScale.setMajorTickSpacing(25);
+    sliderGfxScale.setSnapToTicks(true);
+    graphicsPanel.add(sliderGfxScale);
+
+    labelGfxScaleValue = new JLabel(Settings.gameGfxScale + "%");
+    labelGfxScaleValue.setBounds(Scale.rect(390, 210, 100, 18));
+    labelGfxScaleValue.setFont(Fonts.getFont("default", 12.0f, Font.BOLD));
+    graphicsPanel.add(labelGfxScaleValue);
+
+    sliderGfxScale.addChangeListener(l -> {
+      labelGfxScaleValue.setText(sliderGfxScale.getValue() + "%");
+      if (!sliderGfxScale.getValueIsAdjusting()) eventHandler.gfxScaleChangeEvent(sliderGfxScale.getValue());
+    });
+
+    JSeparator sepSharpen = new JSeparator();
+    sepSharpen.setBounds(Scale.rect(25, 250, 600, 16));
+    graphicsPanel.add(sepSharpen);
+
+    JLabel labelGfxSharpen = new JLabel(_localeManager.getValue("m.gfx_sharpen"));
+    labelGfxSharpen.setBounds(Scale.rect(25, 265, 375, 18));
+    labelGfxSharpen.setFont(Fonts.getFont("default", 14.0f, Font.BOLD | Font.ITALIC));
+    graphicsPanel.add(labelGfxSharpen);
+
+    JLabel labelGfxSharpenExplained = new JLabel(_localeManager.getValue("m.gfx_sharpen_explained"));
+    labelGfxSharpenExplained.setBounds(Scale.rect(25, 285, 600, 16));
+    labelGfxSharpenExplained.setFont(Fonts.getFont("default", 11.0f, Font.ITALIC));
+    graphicsPanel.add(labelGfxSharpenExplained);
+
+    sliderGfxSharpen = new JSlider(JSlider.HORIZONTAL, 0, 100, Settings.gameGfxSharpen);
+    sliderGfxSharpen.setBounds(Scale.rect(25, 305, 350, 40));
+    sliderGfxSharpen.setFocusable(false);
+    sliderGfxSharpen.setPaintTicks(true);
+    sliderGfxSharpen.setMinorTickSpacing(5);
+    sliderGfxSharpen.setMajorTickSpacing(25);
+    sliderGfxSharpen.setSnapToTicks(true);
+    graphicsPanel.add(sliderGfxSharpen);
+
+    labelGfxSharpenValue = new JLabel(Settings.gameGfxSharpen + "%");
+    labelGfxSharpenValue.setBounds(Scale.rect(390, 315, 100, 18));
+    labelGfxSharpenValue.setFont(Fonts.getFont("default", 12.0f, Font.BOLD));
+    graphicsPanel.add(labelGfxSharpenValue);
+
+    sliderGfxSharpen.addChangeListener(l -> {
+      labelGfxSharpenValue.setText(sliderGfxSharpen.getValue() + "%");
+      if (!sliderGfxSharpen.getValueIsAdjusting()) eventHandler.gfxSharpenChangeEvent(sliderGfxSharpen.getValue());
+    });
+
+    JLabel labelGfxNote = new JLabel(_localeManager.getValue("m.gfx_note"));
+    labelGfxNote.setBounds(Scale.rect(25, 360, 600, 16));
+    labelGfxNote.setFont(Fonts.getFont("default", 11.0f, Font.ITALIC));
+    labelGfxNote.setForeground(CustomColors.INTERFACE_MAINPANE_FOOTNOTE);
+    graphicsPanel.add(labelGfxNote);
+
+    return graphicsPanel;
   }
 
   protected JPanel createGamePanel ()
@@ -1234,6 +1343,11 @@ public class SettingsUI extends BaseUI
   public JLabel labelFilePurging;
   public JLabel labelFilePurgingExplained;
   public JCheckBox switchFilePurging;
+  public JCheckBox switchGfxEnabled;
+  public JSlider sliderGfxScale;
+  public JLabel labelGfxScaleValue;
+  public JSlider sliderGfxSharpen;
+  public JLabel labelGfxSharpenValue;
 
   private static final int RESULT_HIDE_DELAY = 5000;
 

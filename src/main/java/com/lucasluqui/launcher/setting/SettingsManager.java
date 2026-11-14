@@ -143,6 +143,14 @@ public class SettingsManager
     Settings.gameGetdownFullURL = getValue("game.getdownFullURL");
     Settings.gameContentURL = getValue("game.contentURL", Settings.gameContentURL);
     Settings.gameAdditionalArgs = getValue("game.additionalArgs.v2", "");
+    Settings.gameGfxEnabled = Boolean.parseBoolean(getValue("game.gfx.enabled", "false"));
+    try {
+      Settings.gameGfxScale = Integer.parseInt(getValue("game.gfx.scale", "100"));
+      Settings.gameGfxSharpen = Integer.parseInt(getValue("game.gfx.sharpen", "0"));
+    } catch (NumberFormatException e) {
+      Settings.gameGfxScale = 100;
+      Settings.gameGfxSharpen = 0;
+    }
 
     log.info("Loaded required settings from properties file");
   }
@@ -306,6 +314,19 @@ public class SettingsManager
         } else {
           writer.println("-Xms" + Settings.gameMemory + "M");
           writer.println("-Xmx" + Settings.gameMemory + "M");
+        }
+      }
+
+      // Graphics enhancements: only written when the game's JVM can actually load the agent,
+      // so a game update that brings the stripped JVM back never leaves the game unable to start.
+      if (Settings.gameGfxEnabled) {
+        if (_skGfxManager.gameJvmSupportsAgent()
+          && FileUtil.fileExists(LauncherGlobals.USER_DIR + File.separator + com.lucasluqui.launcher.SkGfxManager.AGENT_PATH)) {
+          for (String line : com.lucasluqui.launcher.SkGfxManager.extraTxtLines(Settings.gameGfxScale, Settings.gameGfxSharpen)) {
+            writer.println(line);
+          }
+        } else {
+          log.warning("Graphics enhancements enabled but not loadable; leaving them out of extra.txt");
         }
       }
 
@@ -474,11 +495,12 @@ public class SettingsManager
   @Inject protected LauncherContext _ctx;
   @Inject protected LocaleManager _localeManager;
   @Inject protected FlamingoManager _flamingoManager;
+  @Inject protected com.lucasluqui.launcher.SkGfxManager _skGfxManager;
 
   private final Properties _prop = new OrderedProperties(readBaseKeyOrder());
   private HashMap<String, Object> _migrationMap = new HashMap<>();
   private boolean _migrating = false;
 
-  private final String PROP_VER = "33";
+  private final String PROP_VER = "34";
   private final String PROP_PATH = LauncherGlobals.USER_DIR + File.separator + "KnightLauncher.properties";
 }

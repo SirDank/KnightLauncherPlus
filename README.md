@@ -25,6 +25,7 @@ Open source game launcher for Spiral Knights with extended features, custom serv
 - **Streamlined Modding**: Install and uninstall game mods easily without worrying about game updates.
 - **Traffic Logger Mod**: Clean-room client telemetry capture mod to record and inspect Presents/Narya RPCs and DObject events for server development and protocol verification.
 - **Editor Suite**: Launch into Silverweave, Model, Scene, Particle, and Crucible editors to create custom content or preview game models.
+- **Graphics Enhancements**: Render scale (50–200%: supersampling above 100%, faster rendering below) and contrast-adaptive sharpening, injected at launch through a javaagent that hooks LWJGL — game files stay untouched (the bundled Java runtime may be swapped for a full one, kept and restored) and it survives game updates. The game's own settings already cover anisotropic filtering (up to 16x), MSAA and an fps limiter.
 - **Advanced Java Configuration**: Intuitive UI for configuring JVM runtimes (Java 25 LTS), memory limits, and GC parameters.
 - **File Verification & Rebuilding**: Re-install and verify game files with ease.
 - **Discord Integration**: Rich Presence showing current in-game status and activity.

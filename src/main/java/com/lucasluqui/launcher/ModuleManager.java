@@ -19,6 +19,7 @@ import static com.lucasluqui.launcher.Log.log;
 public class ModuleManager
 {
   @Inject protected SettingsManager _settingsManager;
+  @Inject protected SkGfxManager _skGfxManager;
 
   public ModuleManager ()
   {
@@ -35,6 +36,9 @@ public class ModuleManager
     ThreadingUtil.start("ModuleLoader", () -> {
       loadIngameRPC();
       loadExtraPerf();
+      loadSkGfx();
+      // A game update can silently bring back the stripped JVM that can't load the agent.
+      _skGfxManager.ensureConsistent(com.lucasluqui.launcher.setting.Settings.gameGfxEnabled);
     });
   }
 
@@ -62,6 +66,20 @@ public class ModuleManager
         "/rsrc/modules/extra-perf/extra-perf",
         LauncherGlobals.USER_DIR + "\\KnightLauncher\\modules\\extra-perf\\extra-perf"
       );
+    } catch (IOException e) {
+      log.error(e);
+    }
+  }
+
+  /**
+   * The graphics-enhancement javaagent the game can be launched with (render scale and sharpening, see
+   * com.lucasluqui.skgfx). Always extracted so the jar named in extra.txt is in place and current.
+   */
+  protected void loadSkGfx ()
+  {
+    try {
+      ZipUtil.extractFileWithinJar("/rsrc/modules/skgfx/skgfx-agent.jar",
+        LauncherGlobals.USER_DIR + "/KnightLauncher/modules/skgfx/skgfx-agent.jar");
     } catch (IOException e) {
       log.error(e);
     }

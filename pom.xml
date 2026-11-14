@@ -157,6 +157,29 @@
       <version>3.50.3.0</version>
     </dependency>
 
+    <!--
+      Compile-time only, for the skgfx agent (rsrc/modules/skgfx/skgfx-agent.jar): it runs inside the game's JVM,
+      which has the game's own LWJGL 3 on the classpath, so nothing of this ships in the launcher.
+    -->
+    <dependency>
+      <groupId>org.lwjgl</groupId>
+      <artifactId>lwjgl</artifactId>
+      <version>3.3.6</version>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.lwjgl</groupId>
+      <artifactId>lwjgl-glfw</artifactId>
+      <version>3.3.6</version>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.lwjgl</groupId>
+      <artifactId>lwjgl-opengl</artifactId>
+      <version>3.3.6</version>
+      <scope>provided</scope>
+    </dependency>
+
     <!-- Start of local dependencies, found in 'lib' directory. -->
     <!-- Make sure to run 'mvn validate' at least once to install all the local dependencies below. -->
     <dependency>
@@ -234,6 +257,38 @@
         <configuration>
           <encoding>${project.build.sourceEncoding}</encoding>
         </configuration>
+      </plugin>
+      <!--
+        Packages the skgfx javaagent into the resources before the launcher jar is assembled, so the launcher can
+        extract it to KnightLauncher/modules/skgfx/ like the other bundled modules.
+      -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-jar-plugin</artifactId>
+        <version>3.4.2</version>
+        <executions>
+          <execution>
+            <id>skgfx-agent</id>
+            <phase>prepare-package</phase>
+            <goals>
+              <goal>jar</goal>
+            </goals>
+            <configuration>
+              <finalName>skgfx</finalName>
+              <classifier>agent</classifier>
+              <outputDirectory>${project.build.outputDirectory}/rsrc/modules/skgfx</outputDirectory>
+              <includes>
+                <include>com/lucasluqui/skgfx/**</include>
+              </includes>
+              <archive>
+                <manifestEntries>
+                  <Premain-Class>com.lucasluqui.skgfx.SkGfxAgent</Premain-Class>
+                  <Can-Retransform-Classes>true</Can-Retransform-Classes>
+                </manifestEntries>
+              </archive>
+            </configuration>
+          </execution>
+        </executions>
       </plugin>
       <plugin>
         <artifactId>maven-assembly-plugin</artifactId>

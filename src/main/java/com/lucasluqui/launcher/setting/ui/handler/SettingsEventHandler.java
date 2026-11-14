@@ -36,13 +36,15 @@ public class SettingsEventHandler
                                ModManager modManager,
                                LocaleManager localeManager,
                                SettingsManager settingsManager,
-                               FlamingoManager flamingoManager)
+                               FlamingoManager flamingoManager,
+                               com.lucasluqui.launcher.SkGfxManager skGfxManager)
   {
     this._ctx = ctx;
     this._modManager = modManager;
     this._localeManager = localeManager;
     this._settingsManager = settingsManager;
     this._flamingoManager = flamingoManager;
+    this._skGfxManager = skGfxManager;
   }
 
   public void platformChangeEvent (ItemEvent event)
@@ -162,6 +164,49 @@ public class SettingsEventHandler
     Settings.gameDisableExplicitGC = this.ui.switchExplicitGC.isSelected();
     Server selectedServer = _flamingoManager.getSelectedServer();
     _settingsManager.setValue("game.disableExplicitGC", String.valueOf(this.ui.switchExplicitGC.isSelected()), selectedServer);
+  }
+
+  /**
+   * Turning graphics enhancements on may need the game's stripped bundled JVM swapped for a full one (it can't load a
+   * javaagent); the user confirms that first. Turning them off restores the stock JVM.
+   */
+  public void gfxEnabledChangeEvent (ActionEvent action)
+  {
+    boolean enable = this.ui.switchGfxEnabled.isSelected();
+    if (enable && !_skGfxManager.gameJvmSupportsAgent()) {
+      boolean confirmed = Dialog.pushWithConfirm(
+        _localeManager.getValue("m.gfx_swap_confirm"),
+        _localeManager.getValue("t.gfx"),
+        JOptionPane.QUESTION_MESSAGE
+      );
+      if (!confirmed || !_skGfxManager.installFullJvm()) {
+        if (confirmed) {
+          Dialog.push(_localeManager.getValue("m.gfx_swap_failed"), _localeManager.getValue("t.gfx"), JOptionPane.ERROR_MESSAGE);
+        }
+        this.ui.switchGfxEnabled.setSelected(false);
+        return;
+      }
+    }
+    if (!enable) {
+      // Strip extra.txt first: a stale -javaagent line on the restored stripped JVM would stop the game starting
+      // when it's launched outside the launcher (e.g. directly from Steam).
+      _skGfxManager.stripExtraTxt();
+      _skGfxManager.restoreStockJvm();
+    }
+    Settings.gameGfxEnabled = enable;
+    _settingsManager.setValue("game.gfx.enabled", String.valueOf(enable));
+  }
+
+  public void gfxScaleChangeEvent (int percent)
+  {
+    Settings.gameGfxScale = percent;
+    _settingsManager.setValue("game.gfx.scale", String.valueOf(percent));
+  }
+
+  public void gfxSharpenChangeEvent (int percent)
+  {
+    Settings.gameGfxSharpen = percent;
+    _settingsManager.setValue("game.gfx.sharpen", String.valueOf(percent));
   }
 
   public void saveAdditionalArgs ()
@@ -624,7 +669,14 @@ public class SettingsEventHandler
     // the launcher's gameAdditionalArgs setting so that it's also preserved by it.
     if (FileUtil.fileExists("extra.txt") && !FileUtil.fileExists("old-extra.txt")) {
       try {
-        String extraTxtContents = FileUtil.readFile("extra.txt").trim();
+        // Blank lines would fail validation and reset everything, and the skgfx agent lines are
+        // launcher-managed (regenerated into extra.txt on every launch), not user arguments.
+        String extraTxtContents = java.util.Arrays.stream(FileUtil.readFile("extra.txt").split("\\r?\\n"))
+          .map(String::trim)
+          .filter(line -> !line.isEmpty())
+          .filter(line -> !line.startsWith("-javaagent:" + com.lucasluqui.launcher.SkGfxManager.AGENT_PATH)
+            && !line.startsWith("-Dskgfx."))
+          .collect(java.util.stream.Collectors.joining("\n"));
 
         // Avoid porting ParallelOld, causes issues post Java update.
         if (!extraTxtContents.contains("ParallelOld")) {
@@ -717,6 +769,7 @@ public class SettingsEventHandler
   protected LocaleManager _localeManager;
   protected SettingsManager _settingsManager;
   protected FlamingoManager _flamingoManager;
+  protected com.lucasluqui.launcher.SkGfxManager _skGfxManager;
 
   // Default game settings
   private final int DEFAULT_MEMORY = 1024;
